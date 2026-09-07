@@ -113,9 +113,32 @@ function service(ctx, name) {
   return ctx && typeof ctx.get === 'function' ? ctx.get(name) : undefined
 }
 
+function sessionEvents(session) {
+  if (!session) return []
+  if (Array.isArray(session.events)) return session.events
+  try {
+    if (typeof session.snapshotEvents === 'function') {
+      const events = session.snapshotEvents()
+      if (Array.isArray(events)) return events
+    }
+  } catch {
+    // Fall through to the other session event faces.
+  }
+  try {
+    if (typeof session.ownEvents === 'function') {
+      const events = session.ownEvents()
+      if (Array.isArray(events)) return events
+    }
+  } catch {
+    // Fall through to an empty event list.
+  }
+  return []
+}
+
 function automaticTurnIsCurrent(session, trigger) {
-  if (!session || !Array.isArray(session.events) || !trigger || trigger.kind !== 'automatic') return false
-  const lifecycle = [...session.events].reverse()
+  const events = sessionEvents(session)
+  if (!session || events.length === 0 || !trigger || trigger.kind !== 'automatic') return false
+  const lifecycle = [...events].reverse()
     .find((event) => event && (event.type === 'turn/start' || event.type === 'turn/end'))
   return Boolean(lifecycle && lifecycle.type === 'turn/end'
     && lifecycle.seq === trigger.endSeq
@@ -345,7 +368,7 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
       const history = await historicalEvents(ctx, args.sessionId, config)
       metric.stages.historyMs = roundMs(now() - historyStarted)
       const inputStarted = now()
-      const input = buildSuggestionInput(args, session.events, history, config)
+      const input = buildSuggestionInput(args, sessionEvents(session), history, config)
       const system = systemPrompt(mode)
       const inputJson = JSON.stringify(input)
       metric.stages.inputBuildMs = roundMs(now() - inputStarted)
