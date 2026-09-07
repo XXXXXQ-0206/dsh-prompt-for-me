@@ -1,6 +1,7 @@
 'use strict'
 
 const { randomUUID } = require('node:crypto')
+const { readdir, readFile, stat } = require('node:fs/promises')
 const {
   applyUserSettings,
   buildSuggestionInput,
@@ -16,6 +17,18 @@ const RPC_PATH = '/dsh-prompt-for-me/rpc'
 const SETTINGS_NAMESPACE = 'prompt-for-me'
 const MAX_RPC_BYTES = 256 * 1024
 const MAX_METRICS = 50
+const PROJECT_SKIP_DIRS = new Set([
+  '.git', '.hg', '.svn', '.idea', '.vscode', '.next', '.nuxt', '.turbo',
+  'node_modules', 'dist', 'build', 'out', 'target', 'coverage', '.cache',
+  '.gradle', '.pytest_cache', '.mypy_cache', '.tox', '.venv', 'venv',
+  '__pycache__', 'site-packages', '.pnpm-store', '.npm-cache',
+])
+const PROJECT_MANIFEST_NAMES = [
+  'package.json', 'pnpm-workspace.yaml', 'pyproject.toml', 'requirements.txt',
+  'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'tsconfig.json',
+  'vite.config.ts', 'vite.config.js', 'next.config.ts', 'next.config.js',
+  'docker-compose.yml', '.gitignore', 'README.md', 'README.zh.md',
+]
 
 let _UserSettingsSchema
 function getUserSettingsSchema() {
@@ -133,6 +146,85 @@ function sessionEvents(session) {
     // Fall through to an empty event list.
   }
   return []
+}
+
+function sessionCwd(session) {
+  try {
+    if (session && typeof session.header === 'object' && typeof session.header.cwd === 'string') {
+      return session.header.cwd
+    }
+    if (session && typeof session.cwd === 'string') return session.cwd
+  } catch {
+    // Header lookup is best-effort; no cwd means no project grounding.
+  }
+  return undefined
+}
+
+async function collectProjectTree(cwd, config) {
+  const files = []
+  async function walk(directory, relative, depth = 0) {
+    if (files.length >= config.maxProjectTreeFiles) return
+    if (depth > 3) return
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name))
+    for (const entry of entries) {
+      if (files.length >= config.maxProjectTreeFiles) return
+      const name = entry.name
+      if (PROJECT_SKIP_DIRS.has(name)) continue
+      const path = relative === '' ? name : `${relative}/${name}`
+      if (entry.isDirectory()) {
+        await walk(`${directory}/${name}`, path, depth + 1)
+        continue
+      }
+      if (entry.isFile()) files.push(path)
+    }
+  }
+  await walk(cwd, '')
+  return files
+}
+
+async function collectProjectManifests(cwd) {
+  const manifests = {}
+  for (const name of PROJECT_MANIFEST_NAMES) {
+    const target = `${cwd}/${name}`
+    try {
+      const info = await stat(target)
+      if (!info.isFile() || info.size > 262144) continue
+      const text = await readFile(target, 'utf8')
+      if (text.length > 0) manifests[name] = text.slice(0, 4096)
+    } catch {
+      // Missing or unreadable manifests simply do not participate.
+    }
+  }
+  return manifests
+}
+
+async function collectProjectContext(ctx, session, config) {
+  const cwd = sessionCwd(session)
+  if (!cwd) return null
+  const tree = await collectProjectTree(cwd, config)
+  const manifests = await collectProjectManifests(cwd)
+  if (tree.length === 0 && Object.keys(manifests).length === 0) return null
+  const project = { cwd, tree, manifests }
+  const serialized = JSON.stringify(project)
+  if (utf8Bytes(serialized) <= config.maxProjectContextBytes) return project
+  // Drop the largest manifests first, then the tail of the file tree.
+  while (Object.keys(project.manifests).length > 0
+    && utf8Bytes(JSON.stringify(project)) > config.maxProjectContextBytes) {
+    const entries = Object.entries(project.manifests)
+    entries.sort((left, right) => utf8Bytes(left[1]) - utf8Bytes(right[1]))
+    delete project.manifests[entries[entries.length - 1][0]]
+  }
+  while (project.tree.length > 0
+    && utf8Bytes(JSON.stringify(project)) > config.maxProjectContextBytes) {
+    project.tree.pop()
+  }
+  return utf8Bytes(JSON.stringify(project)) <= config.maxProjectContextBytes ? project : null
 }
 
 function automaticTurnIsCurrent(session, trigger) {
@@ -368,7 +460,8 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
       const history = await historicalEvents(ctx, args.sessionId, config)
       metric.stages.historyMs = roundMs(now() - historyStarted)
       const inputStarted = now()
-      const input = buildSuggestionInput(args, sessionEvents(session), history, config)
+      const project = await collectProjectContext(ctx, session, config)
+      const input = buildSuggestionInput({ ...args, project }, sessionEvents(session), history, config)
       const system = systemPrompt(mode)
       const inputJson = JSON.stringify(input)
       metric.stages.inputBuildMs = roundMs(now() - inputStarted)
@@ -391,9 +484,12 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
         preferenceMemoryBytes: utf8Bytes(JSON.stringify(input.userPreferenceMemory)),
         currentCycleSkippedItems: input.currentCycleSkipped.length,
         currentCycleSkippedBytes: utf8Bytes(JSON.stringify(input.currentCycleSkipped)),
+        projectBytes: input.project ? utf8Bytes(JSON.stringify(input.project)) : 0,
+        projectTreeItems: input.project ? input.project.tree.length : 0,
+        projectManifestItems: input.project ? Object.keys(input.project.manifests).length : 0,
       }
       if (mode === 'predict' && input.current.draft.trim() === ''
-        && input.current.recentTurns.length === 0) {
+        && input.current.recentTurns.length === 0 && input.project === null) {
         return failure(
           'NO_USER_CONTEXT',
           'This new session has no previous human message. Add a draft first to use the optimizer.',
@@ -671,6 +767,7 @@ module.exports = {
   _testing: {
     get UserSettingsSchema() { return getUserSettingsSchema() },
     collectCandidate,
+    collectProjectContext,
     createMetricsStore,
     createGenerateHandler,
     createGenerateStream,
