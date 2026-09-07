@@ -1361,18 +1361,20 @@ module.exports = function createClientPlugin(React, options) {
       )
       void settingsScope.load()
       void ensureConfiguration(true)
-      slots.inject('conversation.input.right', () => slots.register({
-        name: 'conversation.input.right',
-        id: 'prompt-for-me',
-        order: 90,
-        label: 'Prompt for Me / Prompt 嘴替',
-      }, PromptForMeButton))
-      slots.inject('conversation.input.left', () => slots.register({
-        name: 'conversation.input.left',
-        id: 'prompt-for-me-force',
-        order: 1,
-        label: 'Prompt for Me (generate anytime)',
-      }, ForcePromptButton))
+      slots.inject('conversation.input.right', () => {
+        slots.register({
+          name: 'conversation.input.right',
+          id: 'prompt-for-me-force',
+          order: 1,
+          label: 'Prompt for Me (generate anytime)',
+        }, ForcePromptButton)
+        slots.register({
+          name: 'conversation.input.right',
+          id: 'prompt-for-me',
+          order: 90,
+          label: 'Prompt for Me / Prompt 嘴替',
+        }, PromptForMeButton)
+      })
       slots.inject('conversation.input.dock', () => slots.register({
         name: 'conversation.input.dock',
         id: 'prompt-for-me-preview',
