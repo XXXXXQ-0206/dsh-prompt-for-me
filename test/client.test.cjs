@@ -326,10 +326,10 @@ test('the browser plugin registers native and fallback surfaces and accepts Host
 
   assert.deepEqual(plugin.inject, ['modelDirectories', 'slots'])
   assert.deepEqual(injected, [
-    'conversation.input.right', 'conversation.input.dock', 'settings.plugin.item',
+    'conversation.input.left', 'conversation.input.dock', 'settings.plugin.item',
   ])
   assert.deepEqual(registrations.map(({ entry }) => [entry.name, entry.id]), [
-    ['conversation.input.right', 'prompt-for-me'],
+    ['conversation.input.left', 'prompt-for-me'],
     ['conversation.input.dock', 'prompt-for-me-preview'],
     ['settings.plugin.item', 'prompt-for-me'],
   ])
@@ -473,17 +473,18 @@ test('the current-cycle skipped byte budget keeps the most recent suggestions', 
   assert.deepEqual(generator.calls[3].currentCycleSkipped, [suggestions[1], suggestions[2]])
 })
 
-test('the complete suggestion reaches the draft before the request finishes', async () => {
+test('stream deltas reach the draft before the request finishes', async () => {
   browserStorage()
   let releaseRemaining
   const remaining = new Promise((resolve) => { releaseRemaining = resolve })
   let firstVisible
   const visible = new Promise((resolve) => { firstVisible = resolve })
   const plugin = createClientPlugin(React, {
-    generate: async (args, onCandidate) => {
-      await onCandidate('A')
+    generate: async (args, onCandidate, _signal, onDelta) => {
+      await onDelta('A')
       firstVisible()
       await remaining
+      await onCandidate('A')
       return { ok: true, requestId: 'request-1' }
     },
   })
@@ -903,4 +904,66 @@ test('hover text is concise, localized, and state-specific', () => {
   assert.equal(plugin._testing.tooltipText(store, true), '换一条（⌘⇧Space）')
   store.phase = 'error'
   assert.equal(plugin._testing.tooltipText(store, false), 'Generation failed. Click to retry')
+})
+
+test('manual requests adopt optimize mode when the draft has non-space text', async () => {
+  browserStorage()
+  const calls = []
+  const plugin = createClientPlugin(React, {
+    generate: suggestionGenerator(['optimized'], calls).generate,
+  })
+  let draft = '给一个 Python 工具'
+  await plugin._testing.trigger('s1', draft, {
+    setDraft: (value) => { draft = value },
+  })
+  assert.equal(calls[0].mode, 'optimize')
+  assert.equal(draft, 'optimized')
+})
+
+test('a second manual click interrupts the stream and restores the original draft', async () => {
+  browserStorage()
+  let release
+  const pending = new Promise((resolve) => { release = resolve })
+  let draft = 'original'
+  const plugin = createClientPlugin(React, {
+    generate: async (_args, onCandidate, _signal, onDelta) => {
+      await onDelta('partial')
+      await pending
+      await onCandidate('final')
+      return { ok: true }
+    },
+  })
+  const actions = { setDraft: (value) => { draft = value } }
+  const request = plugin._testing.trigger('s1', draft, actions)
+  await nextTask()
+  const store = plugin._testing.storeFor('s1')
+  assert.equal(store.pending, true)
+  assert.equal(store.streamingText, 'partial')
+  assert.equal(plugin._testing.stopManual(store, actions), true)
+  assert.equal(draft, 'original')
+  assert.equal(store.pending, false)
+  assert.equal(store.phase, 'idle')
+  release()
+  await request
+  assert.equal(draft, 'original')
+})
+
+test('stream history supports Ctrl+Z undo and Ctrl+Y redo', async () => {
+  browserStorage()
+  const plugin = createClientPlugin(React, {
+    generate: async (_args, onCandidate, _signal, onDelta) => {
+      await onDelta('partial')
+      await onCandidate('final')
+      return { ok: true }
+    },
+  })
+  let draft = 'original'
+  const actions = { setDraft: (value) => { draft = value } }
+  await plugin._testing.trigger('s1', draft, actions)
+  const store = plugin._testing.storeFor('s1')
+  assert.deepEqual(store.streamHistory, ['original', 'partial', 'final'])
+  assert.equal(plugin._testing.applyManualHistory(store, actions, -1), true)
+  assert.equal(draft, 'partial')
+  assert.equal(plugin._testing.applyManualHistory(store, actions, 1), true)
+  assert.equal(draft, 'final')
 })
