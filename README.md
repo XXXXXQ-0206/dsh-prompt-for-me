@@ -2,43 +2,49 @@
 
 [中文](README.zh.md)
 
-[![npm version](https://img.shields.io/npm/v/dsh-prompt-for-me)](https://www.npmjs.com/package/dsh-prompt-for-me) [![npm downloads](https://img.shields.io/npm/dm/dsh-prompt-for-me)](https://www.npmjs.com/package/dsh-prompt-for-me) [![GitHub stars](https://img.shields.io/github/stars/ChuanTianML/prompt-for-me)](https://github.com/ChuanTianML/prompt-for-me)
+[![GitHub](https://img.shields.io/badge/GitHub-XXXXXQ--0206%2Fdsh--prompt--for--me-blue)](https://github.com/XXXXXQ-0206/dsh-prompt-for-me)
 
-Prompt for Me (中文名：Prompt 嘴替) predicts the next message you may want to send from the DeepSeek Harness composer. After a completed agent turn, it quietly offers one suggestion as ghost text. Your draft stays empty until you accept it, and the plugin never submits on your behalf.
+Prompt for Me (中文名：Prompt 嘴替) adds one compact button to the DeepSeek Harness composer. It has two modes:
+
+- If the composer contains non-space text, the button becomes **优化提示词** and asks the currently selected Harness model to optimize that prompt.
+- If the composer is empty but the current session already has human conversation, the button becomes **预测提示词** and predicts the user's next message.
+- A brand-new blank session with no human context disables the button and asks you to type a task first; there is not enough evidence to guess a next prompt.
+
+The result is streamed directly into the composer as a draft. Input is locked while the model is working, clicking the button again immediately cancels generation and restores the original draft, and `Ctrl+Z` / `Ctrl+Y` step through the generated history.
+
+There is no separate automatic button and no ghost-text flow in this fork. The new button is an upgrade of the previous manual Trigger path and reuses its generation, history, preference-memory, current-cycle feedback, and model-route infrastructure.
 
 ![Prompt for Me interaction flow](assets/interaction-flow.svg)
 
 ## What it does
 
-- Generates only after a newly completed turn when the session is idle, plan mode is inactive, and the composer has exactly empty text, no images, and no queued intent.
-- Retains that completed turn while Host policy loads or the composer is temporarily ineligible, then generates once the requirements are met.
-- Retires suggestions from the preceding context when a newer turn completes, including after submissions that settle too quickly for an intermediate composer state to render.
-- Shows native inline ghost text on compatible Harness clients. Older clients use a small preview card without mutating the draft.
-- Accepts a ghost with Tab, Right Arrow, or the adjacent check control. Enter never accepts ghost text.
-- Hides the ghost when you type, offers it again if you clear the draft, and dismisses it with Escape.
-- Keeps the Sparkles Trigger and `Mod+Shift+Space` shortcut. An explicit Trigger always requests a fresh suggestion and writes it directly into the draft, even while automatic generation is in flight.
-- Sends skipped suggestions with the next explicit request so the model avoids repeating or paraphrasing them. The bounded cycle stores at most ten.
-- Never bypasses Harness approvals, never invokes tools, and never sends a message automatically.
+- Adds a single compact icon button at the left side of the composer tool row, next to the original context/command control.
+- Chooses automatically between prediction and optimization using the live current draft and session lifecycle.
+- Uses the exact provider/model currently selected in the composer (the same selection used when you press Enter).
+- Streams model output into the draft and keeps the composer locked until the request completes.
+- Aborts the request and restores the original draft when the button is clicked again.
+- Records streamed draft snapshots so `Ctrl+Z` and `Ctrl+Y` can undo/redo the optimization.
+- Keeps skipped candidates in the current cycle so the model avoids repeating them.
+- Preserves bounded cross-session preference memory and current-session feedback.
+- Never invokes tools, bypasses Harness approvals, or submits a message automatically.
 
 ## Interaction reference
 
-| Situation | Result |
+| Action | Result |
 | --- | --- |
-| A turn completes and the composer is eligible | One automatic suggestion appears outside the draft. |
-| Tab, Right Arrow, or the check control | The visible suggestion becomes one undoable draft edit. |
-| Enter while only a ghost is visible | Nothing is accepted or sent. |
-| Start typing | The ghost hides; your text wins. |
-| Clear the typed text | The hidden suggestion can reappear without another model call. |
-| Escape | The visible suggestion is dismissed. |
-| Sparkles button or `Mod+Shift+Space` | A fresh suggestion is generated and directly fills or replaces the draft. |
-| Edit and Enter | Only the final text is submitted; adoption becomes positive feedback only now. |
+| Type a task and click 优化提示词 | The current prompt is optimized using the selected model and streamed into the draft. |
+| Leave the draft empty in a new session | The button is disabled until a task is typed or human context exists. |
+| Leave the draft empty in a conversation | The selected model predicts the next user message. |
+| Click the button while generating | The request is aborted and the original draft is restored so you can edit it. |
+| `Ctrl+Z` / `Ctrl+Y` | Step backward/forward through the generated stream history. |
+| Press Enter | Only the draft you see is submitted; the plugin never submits by itself. |
 
 ## Install
 
 The release tarball is the simplest option because it contains prebuilt Host and Client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/ChuanTianML/prompt-for-me/releases/download/v0.6.0/dsh-prompt-for-me-0.6.0.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.1/dsh-prompt-for-me-0.6.1.tgz
 ```
 
 Restart `dsh web` after installation.
@@ -46,7 +52,7 @@ Restart `dsh web` after installation.
 You may also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:ChuanTianML/prompt-for-me#v0.6.0
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.1
 ```
 
 pnpm 10 may ask you to allow the package's `prepare` script for a Git install. Add `dsh-prompt-for-me: true` under `allowBuilds` in the Web profile's `pnpm-workspace.yaml`, then run the command again. The script only copies the checked-out Host files and wraps the checked-out Client factory; it performs no downloads.
@@ -58,21 +64,20 @@ dsh plugin --profile web update dsh-prompt-for-me
 dsh plugin --profile web remove dsh-prompt-for-me
 ```
 
-Current DeepSeek Harness builds provide the native inline suggestion API. If that API is absent but completed-turn projection is available, the plugin falls back to an explicit preview card with Use and dismiss controls. The manual Sparkles workflow remains direct-fill in either presentation.
+Current DeepSeek Harness builds provide the composer selection hooks used by this fork. The manual generation workflow is direct-fill and does not require the native ghost-text API.
 
 ## Web UI settings
 
 Open **Settings → Plugins → Configurable**, then expand **Prompt for Me**. The card follows Harness settings structure, tokens, spacing, and staged Save/Discard behavior. Saved values live in the shared Host user-settings document and take effect immediately without a restart.
 
-- **Suggest after the Agent replies** is on by default. Turning it off withdraws any unaccepted automatic ghost and stops future automatic generation; the manual Sparkles Trigger remains available.
-- **Manual generation shortcut** defaults to `Mod+Shift+Space`. Select the current shortcut and press a new Command/Ctrl or Alt combination, or disable the shortcut. Harness still owns ghost acceptance, which defaults to Tab.
+- **Manual generation shortcut** defaults to `Mod+Shift+Space`. Select the current shortcut and press a new Command/Ctrl or Alt combination, or disable the shortcut.
 - **Advanced settings → Suggestion model** follows the current Session by default. It can instead pin one provider/model from the current Harness model directory.
 
 The UI deliberately omits context-range controls, quick/personalized modes, a personalization reset, token limits, and timeouts. The plugin owns those product decisions instead of asking users to tune suggestion quality.
 
 ## Model and API key
 
-The plugin calls `ctx.llm` on the Harness Host. By default it reuses the current session's provider and model, falling back to the Harness default selection. The provider therefore uses the API key already configured in DeepSeek Harness. The browser never receives or reads that key, and this plugin has no separate key.
+The plugin calls `ctx.llm` on the Harness Host. It reuses the provider/model currently selected in the composer, which is the same selection used when the user presses Enter. It falls back to the session request header and then to a fixed composition route. The provider therefore uses the API key already configured in DeepSeek Harness. The browser never receives or reads that key, and this plugin has no separate key.
 
 Most users can pin an auxiliary model from the Web UI advanced settings. Deployment maintainers may also set both `provider` and `model` as a composition base in `cordis.patch.yml` or an overriding profile patch; a saved Web UI choice takes precedence:
 
@@ -86,7 +91,7 @@ Most users can pin an auxiliary model from the Web UI advanced settings. Deploym
 
 ## Data and privacy
 
-On each automatic or explicit generation request, the Host may send these bounded text fields to the selected model provider:
+On each generation request, the Host may send these bounded text fields to the selected model provider:
 
 - the current draft;
 - the last three direct-human/assistant turns from the current session;
@@ -96,17 +101,17 @@ On each automatic or explicit generation request, the Host may send these bounde
 
 The current draft and recent turns determine the task, intent, and message content. Current-session feedback adjusts the immediate wording. Cross-session memory may influence only durable style, detail, and workflow preferences. Manual prompts and submitted suggestion edits carry more weight than exact accepts; rejected suggestions are weak negative evidence. Editing a suggestion and triggering again rejects the original suggestion but does not treat the unsubmitted edit as a positive preference.
 
-Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. If both the draft and direct-human conversation are empty, generation stops before the model call.
+Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. A brand-new session with no earlier human turns and no typed draft disables prediction; the optimizer becomes available as soon as the user enters a task.
 
 Common API-key, token, password, and Bearer-token patterns are replaced with `[REDACTED_SECRET]` before the model call. Attachments, tool arguments, files, credentials, and binary blocks are not collected. The plugin has no analytics endpoint and sends data only to the model route already selected in Harness.
 
-Interaction records are stored only in this browser's `localStorage` under `dsh.prompt-for-me.outcomes.v2`. Each record contains its session ID, final action, origin, and the relevant original/final text. Merely seeing or adopting ghost text is not positive feedback; it becomes evidence only after submission. Version 1 records migrate automatically and remain untouched. The plugin does not expose a reset control that asks users to manage this history.
+Interaction records are stored only in this browser's `localStorage` under `dsh.prompt-for-me.outcomes.v2`. Each record contains its session ID, final action, origin, and the relevant original/final text. A generated prompt only becomes feedback after the user actually submits it. Version 1 records migrate automatically and remain untouched.
 
 DeepSeek Harness `0.1.0-rc.6` does not expose downstream registration for custom durable session-event types. For that reason, the standalone plugin does not append its auxiliary model request or outcomes to the Harness session log; doing so would make persisted sessions unreadable to the stock runtime. This is the main difference from the experimental in-tree implementation and will be revisited when a public event-registration API exists.
 
-The generation RPC uses NDJSON. Each complete candidate is validated before it reaches either the transient suggestion surface or the draft; partial model tokens and incomplete JSON never enter the composer. Background failures stay quiet. Explicit failures remain visible on the Sparkles control.
+The generation RPC uses NDJSON. Raw prompt deltas are streamed into the draft as they arrive, and the final candidate is validated against the bounded output limit before the request finishes. Failures remain visible on the button's tooltip and can be retried by clicking again.
 
-The auxiliary request always uses reasoning effort `off`. The model receives one system instruction plus one JSON user message with `current`, `currentSessionFeedback`, `userPreferenceMemory`, and `currentCycleSkipped`. It receives no tool schemas or attachments.
+The auxiliary request always uses reasoning effort `off`. The model receives one mode-aware system instruction plus one JSON user message with `mode`, `originalPrompt`, `current`, `currentSessionFeedback`, `userPreferenceMemory`, and `currentCycleSkipped`. It receives no tool schemas or attachments.
 
 The Host retains the latest 50 privacy-safe performance records in memory and logs each record as `prompt-for-me metrics`. Records contain model route, text byte/item counts, history/input preparation time, first model chunk/reasoning/text times, suggestion arrival time, total model/request time, and provider token usage. They contain no prompt, candidate, or outcome text. Query the current process with:
 
@@ -122,7 +127,7 @@ The Web UI exposes only the three everyday choices above. The table below docume
 
 | Field | Default | Meaning |
 | --- | ---: | --- |
-| `automatic` | `true` | Offer a non-draft suggestion after eligible completed turns. |
+| `automatic` | `false` | Kept for backward compatibility; this fork never renders or starts an automatic ghost workflow. |
 | `maxCandidateBytes` | `4096` | UTF-8 limit per suggestion. |
 | `maxDraftBytes` | `32768` | UTF-8 limit for a draft or edited outcome. |
 | `maxCurrentCycleSkipped` | `10` | Skipped suggestions retained as hard negative context for the next Trigger. |
