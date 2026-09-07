@@ -124,8 +124,19 @@ function automaticTurnIsCurrent(session, trigger) {
 }
 
 function resolveRoute(ctx, session, config) {
-  if (config.provider !== undefined && config.model !== undefined) {
-    return { provider: config.provider, model: config.model }
+  // 优先复用“输入框当前选中的模型/供应商”（enter 发送时用的那个），
+  // 而不是插件里固定的 route；固定 route 仅作为最后兜底。
+  try {
+    const defaults = service(ctx, 'agentDefaultModel')
+    if (defaults && typeof defaults.currentSelection === 'function') {
+      const live = defaults.currentSelection()
+      if (live && typeof live.provider === 'string' && live.provider !== ''
+        && typeof live.model === 'string' && live.model !== '') {
+        return { provider: live.provider, model: live.model }
+      }
+    }
+  } catch {
+    // 当前选择不可用时继续回退
   }
   let selected
   try {
@@ -135,14 +146,14 @@ function resolveRoute(ctx, session, config) {
   } catch {
     selected = undefined
   }
-  if (!selected) {
-    const defaults = service(ctx, 'agentDefaultModel')
-    if (defaults && typeof defaults.currentSelection === 'function') selected = defaults.currentSelection()
+  if (selected && typeof selected.provider === 'string' && selected.provider !== ''
+    && typeof selected.model === 'string' && selected.model !== '') {
+    return { provider: selected.provider, model: selected.model }
   }
-  return selected && typeof selected.provider === 'string' && selected.provider !== ''
-    && typeof selected.model === 'string' && selected.model !== ''
-    ? { provider: selected.provider, model: selected.model }
-    : undefined
+  if (config.provider !== undefined && config.model !== undefined) {
+    return { provider: config.provider, model: config.model }
+  }
+  return undefined
 }
 
 async function historicalEvents(ctx, sessionId, config) {
