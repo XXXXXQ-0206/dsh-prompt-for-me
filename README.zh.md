@@ -20,6 +20,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加
 
 - 在输入栏右下区域、上下文占用图标右侧与发送按钮之间增加一个紧凑图标按钮。
 - 根据当前草稿和 Session 生命周期自动选择预测或优化模式。
+- 基于当前工作区项目进行预测：扫描 Session 的 `cwd`，最多纳入 100 个项目文件，并读取 `package.json`、`pyproject.toml`、`go.mod`、`Cargo.toml`、`tsconfig.json`、`README.md` 等关键 manifest。
 - 使用输入框当前选择的 provider/model，也就是用户按 Enter 发送时使用的同一个模型。
 - 模型增量直接流式写入草稿，并在请求完成前锁定输入框。
 - 生成中再次点击会中止请求并恢复原始草稿。
@@ -34,7 +35,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加
 | --- | --- |
 | 输入任务后点击「优化提示词」 | 使用当前模型优化 prompt，并流式写入草稿。 |
 | 新 Session 且草稿为空 | 按钮禁用，等待输入任务或已有真人上下文。 |
-| 已有对话且草稿为空 | 预测用户下一句。 |
+| 已打开项目且草稿为空 | 基于当前项目文件与进度预测下一条开发提示词。 |
 | 生成中再点按钮 | 终止请求并恢复原始草稿，便于继续修改。 |
 | `Ctrl+Z` / `Ctrl+Y` | 在流式生成历史中撤销/重做。 |
 | 按 Enter | 只发送当前看到的草稿；插件自身绝不提交。 |
@@ -44,7 +45,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加
 推荐安装 Release 中已经构建好的 tarball，不需要执行构建脚本：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.4/dsh-prompt-for-me-0.6.4.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.5/dsh-prompt-for-me-0.6.5.tgz
 ```
 
 安装后重启 `dsh web`。
@@ -52,7 +53,7 @@ dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/re
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.4
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.5
 ```
 
 使用 pnpm 10 从 Git 安装时，可能需要在 Web profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 添加 `dsh-prompt-for-me: true`，然后重新运行命令。`prepare` 脚本只复制 checkout 中的 Host 文件并包装 Client factory，不会下载任何内容。
@@ -94,14 +95,15 @@ dsh plugin --profile web remove dsh-prompt-for-me
 每次生成建议时，Host 可能把下列有界文本发送给当前选择的模型提供方：
 
 - 当前草稿；
+- 有界的项目快照：当前目录、源码文件树和关键 manifest 摘要；
 - 当前会话最近 3 轮真人用户/助手文本；
 - 当前会话中已发送的建议编辑、原样接受和拒绝记录；
 - 来自最多 20 个历史会话的手写提示词和建议交互原始样本；
 - 本轮最多 10 条已经跳过的建议，用于让模型避免重复或改写复述。
 
-当前草稿和最近 3 轮决定当前任务、意图和消息内容；当前会话反馈只调整眼前的表达；跨会话记忆只能影响长期的风格、详略和工作流偏好。手写提示词和编辑后发送的建议权重高于原样接受，拒绝记录只作为较弱的负向信号。编辑建议后再次 Trigger 会拒绝原建议，但不会把尚未发送的编辑结果当成正向偏好。
+当前草稿、项目快照和最近 3 轮决定当前任务、意图和消息内容；项目上下文让预测返回可执行的工程提示词，而不是泛泛的助手回复。当前会话反馈只调整眼前的表达；跨会话记忆只能影响长期的风格、详略和工作流偏好。手写提示词和编辑后发送的建议权重高于原样接受，拒绝记录只作为较弱的负向信号。编辑建议后再次 Trigger 会拒绝原建议，但不会把尚未发送的编辑结果当成正向偏好。
 
-Harness 会把工作区指令、运行时上下文和 Skill 列表记录为用户角色事件；插件会从会话轮次和偏好记忆中排除这些非真人来源。新 Session 没有真人历史且没有草稿时，预测会被禁用；只要输入任务即可切换到优化模式。
+Harness 会把工作区指令、运行时上下文和 Skill 列表记录为用户角色事件；插件会从会话轮次和偏好记忆中排除这些非真人来源。只有既没有草稿也没有足够项目证据的新 Session 才会禁用预测；工作区包含源码或 manifest 后即可进行项目级预测。
 
 常见 API Key、token、password 和 Bearer token 会在模型调用前替换为 `[REDACTED_SECRET]`。插件不会收集附件、工具参数、文件、凭证或二进制内容；没有分析上报服务，只会调用 Harness 已选择的模型路由。
 
@@ -143,6 +145,8 @@ Web UI 只公开上述三个对日常交互有明确价值的选项。下表是�
 | `maxRejectedSuggestions` | `4` | 每个反馈层保留的弱拒绝信号数。 |
 | `maxLocalOutcomes` | `50` | 浏览器本地交互记录上限。 |
 | `maxLocalOutcomesBytes` | `131072` | 浏览器本地记录及其 RPC 副本共享的 JSON 预算。 |
+| `maxProjectContextBytes` | `16384` | 项目目录树和关键 manifest 摘要的 UTF-8 预算。 |
+| `maxProjectTreeFiles` | `100` | 项目上下文包含的文件树条目上限。 |
 | `maxOutputTokens` | `2048` | 辅助模型输出预算。 |
 | `timeoutMs` | `30000` | 辅助模型调用超时。 |
 | `shortcut` | `Mod+Shift+Space` | 跨平台 Trigger，也可设为 `disabled`。 |
