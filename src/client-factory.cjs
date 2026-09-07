@@ -995,11 +995,15 @@ module.exports = function createClientPlugin(React, options) {
       disabled: (loading && store.generationKind !== 'automatic') || locked,
       onClick: () => { void trigger(sessionId, draft, actions) },
     }, React.createElement(SparklesIcon))
+    const forceButton = React.createElement(ForcePromptButton, props)
     if (store.presentation !== 'ghost' || !input.suggestion
       || input.suggestion.id !== store.suggestionId
-      || typeof actions.acceptSuggestion !== 'function') return triggerButton
+      || typeof actions.acceptSuggestion !== 'function') {
+      return React.createElement(React.Fragment, null, forceButton, triggerButton)
+    }
     const useLabel = zh ? '采用建议' : 'Use suggestion'
     return React.createElement(React.Fragment, null,
+      forceButton,
       React.createElement('button', {
         type: 'button',
         className: 'dsh-pfm-button',
@@ -1375,12 +1379,6 @@ module.exports = function createClientPlugin(React, options) {
       )
       void settingsScope.load()
       void ensureConfiguration(true)
-      slots.inject('conversation.input.right', () => slots.register({
-        name: 'conversation.input.right',
-        id: 'prompt-for-me-force',
-        order: 1,
-        label: 'Prompt for Me (generate anytime)',
-      }, ForcePromptButton))
       slots.inject('conversation.input.right', () => slots.register({
         name: 'conversation.input.right',
         id: 'prompt-for-me',
