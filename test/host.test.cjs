@@ -200,7 +200,7 @@ test('historicalEvents retains session IDs for outcome correlation', async () =>
   assert.equal(history[0].events[0].data.content[0].text, 'Keep changes small and run focused tests.')
 })
 
-test('generate rejects an empty draft without a direct human message', async () => {
+test('generate blocks empty-draft prediction when a new session has no human message', async () => {
   const { ctx, requests, session } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -214,7 +214,7 @@ test('generate rejects an empty draft without a direct human message', async () 
   assert.deepEqual(result, {
     ok: false,
     code: 'NO_USER_CONTEXT',
-    message: 'Prompt for Me needs a draft or a previous user message.',
+    message: 'This new session has no previous human message. Add a draft first to use the optimizer.',
   })
   assert.equal(requests.length, 0)
 })
@@ -378,7 +378,7 @@ test('the plugin RPC reads and atomically replaces its Host settings section', a
   assert.deepEqual(configuration.route, next.route)
 })
 
-test('generate publishes the complete suggestion before the model finishes', async () => {
+test('generate publishes stream deltas before the model finishes', async () => {
   let releaseFinish
   const finish = new Promise((resolve) => { releaseFinish = resolve })
   const { ctx } = contextWith(async function * () {
@@ -394,19 +394,21 @@ test('generate publishes the complete suggestion before the model finishes', asy
     sessionId: 'session-1', draft: '', trigger: { kind: 'manual' }, currentCycleSkipped: [], localOutcomes: [],
   }, async (candidate) => {
     seen.push(candidate)
+  }, undefined, async (text) => {
+    seen.push(text)
     if (seen.length === 1) signalFirst()
   })
 
   await first
-  assert.deepEqual(seen, ['A'])
+  assert.deepEqual(seen, [`${candidateLines('A')}\n`])
   releaseFinish()
   const result = await pending
   assert.equal(result.ok, true)
   assert.equal(result.candidate, 'A')
 })
 
-test('generate rejects stale sessions and invalid model output with user-safe errors', async () => {
-  const { ctx } = contextWith(async function * () {
+test('generate rejects stale sessions and accepts raw prompt output', async () => {
+  const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: 'not-json' }
   })
   const generate = host._testing.createGenerateHandler(ctx, resolveConfig({}))
@@ -417,13 +419,12 @@ test('generate rejects stale sessions and invalid model output with user-safe er
     code: 'SESSION_NOT_LIVE',
     message: 'This session is no longer active.',
   })
-  assert.deepEqual(await generate({
+  const second = await generate({
     sessionId: 'session-1', draft: '', trigger: { kind: 'manual' }, currentCycleSkipped: [],
-  }), {
-    ok: false,
-    code: 'GENERATION_FAILED',
-    message: 'Prompt for Me could not generate a valid suggestion.',
   })
+  assert.equal(second.ok, true)
+  assert.equal(second.candidate, 'not-json')
+  assert.equal(requests.length, 1)
 })
 
 test('generate reports a locally enforced model timeout', async () => {
