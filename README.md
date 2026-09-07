@@ -20,6 +20,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 
 - Adds a single compact icon button to the right of the context-meter icon, immediately left of the send button.
 - Chooses automatically between prediction and optimization using the live current draft and session lifecycle.
+- Grounds prediction in the current workspace: scans the session `cwd`, includes up to 100 project files, and reads key manifests such as `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `tsconfig.json`, and `README.md`.
 - Uses the exact provider/model currently selected in the composer (the same selection used when you press Enter).
 - Streams model output into the draft and keeps the composer locked until the request completes.
 - Aborts the request and restores the original draft when the button is clicked again.
@@ -34,7 +35,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 | --- | --- |
 | Type a task and click 优化提示词 | The current prompt is optimized using the selected model and streamed into the draft. |
 | Leave the draft empty in a new session | The button is disabled until a task is typed or human context exists. |
-| Leave the draft empty in a conversation | The selected model predicts the next user message. |
+| Leave the draft empty and open the project | The selected model predicts the next development prompt for the current project. |
 | Click the button while generating | The request is aborted and the original draft is restored so you can edit it. |
 | `Ctrl+Z` / `Ctrl+Y` | Step backward/forward through the generated stream history. |
 | Press Enter | Only the draft you see is submitted; the plugin never submits by itself. |
@@ -44,7 +45,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 The release tarball is the simplest option because it contains prebuilt Host and Client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.4/dsh-prompt-for-me-0.6.4.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.5/dsh-prompt-for-me-0.6.5.tgz
 ```
 
 Restart `dsh web` after installation.
@@ -52,7 +53,7 @@ Restart `dsh web` after installation.
 You may also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.4
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.5
 ```
 
 pnpm 10 may ask you to allow the package's `prepare` script for a Git install. Add `dsh-prompt-for-me: true` under `allowBuilds` in the Web profile's `pnpm-workspace.yaml`, then run the command again. The script only copies the checked-out Host files and wraps the checked-out Client factory; it performs no downloads.
@@ -94,14 +95,15 @@ Most users can pin an auxiliary model from the Web UI advanced settings. Deploym
 On each generation request, the Host may send these bounded text fields to the selected model provider:
 
 - the current draft;
+- a bounded project snapshot containing the current directory, source tree, and key manifest excerpts;
 - the last three direct-human/assistant turns from the current session;
 - current-session submitted suggestion edits, exact accepts, and rejected suggestions;
 - bounded raw examples from manual prompts and suggestion interactions in up to 20 earlier sessions;
 - up to ten suggestions skipped during the current cycle, so the model can avoid repeating or paraphrasing them.
 
-The current draft and recent turns determine the task, intent, and message content. Current-session feedback adjusts the immediate wording. Cross-session memory may influence only durable style, detail, and workflow preferences. Manual prompts and submitted suggestion edits carry more weight than exact accepts; rejected suggestions are weak negative evidence. Editing a suggestion and triggering again rejects the original suggestion but does not treat the unsubmitted edit as a positive preference.
+The current draft, project snapshot, and recent turns determine the task, intent, and message content. Project grounding makes prediction return an actionable engineering prompt instead of a generic assistant response. Current-session feedback adjusts the immediate wording. Cross-session memory may influence only durable style, detail, and workflow preferences. Manual prompts and submitted suggestion edits carry more weight than exact accepts; rejected suggestions are weak negative evidence. Editing a suggestion and triggering again rejects the original suggestion but does not treat the unsubmitted edit as a positive preference.
 
-Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. A brand-new session with no earlier human turns and no typed draft disables prediction; the optimizer becomes available as soon as the user enters a task.
+Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. A brand-new session remains disabled only when there is neither a typed draft nor enough project evidence; once the workspace contains source files or manifests, project-backed prediction becomes available.
 
 Common API-key, token, password, and Bearer-token patterns are replaced with `[REDACTED_SECRET]` before the model call. Attachments, tool arguments, files, credentials, and binary blocks are not collected. The plugin has no analytics endpoint and sends data only to the model route already selected in Harness.
 
@@ -143,6 +145,8 @@ The Web UI exposes only the three everyday choices above. The table below docume
 | `maxRejectedSuggestions` | `4` | Weak rejection signals retained per feedback tier. |
 | `maxLocalOutcomes` | `50` | Browser-local interaction records retained. |
 | `maxLocalOutcomesBytes` | `131072` | Shared JSON budget for browser-local records and their RPC copy. |
+| `maxProjectContextBytes` | `16384` | UTF-8 budget for the grounded project tree and manifest excerpts. |
+| `maxProjectTreeFiles` | `100` | Maximum project files included in the grounding snapshot. |
 | `maxOutputTokens` | `2048` | Auxiliary model output budget. |
 | `timeoutMs` | `30000` | Auxiliary model-call timeout. |
 | `shortcut` | `Mod+Shift+Space` | Portable Trigger, or `disabled`. |
