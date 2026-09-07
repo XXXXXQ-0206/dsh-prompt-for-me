@@ -4,7 +4,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-XXXXXQ--0206%2Fdsh--prompt--for--me-blue)](https://github.com/XXXXXQ-0206/dsh-prompt-for-me)
 
-Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏左侧加入一个紧凑按钮，支持两种模式：
+Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加入一个紧凑按钮：位于上下文占用图标的右侧、发送按钮左侧，支持两种模式：
 
 - 输入框有非全空格文本时，按钮显示为「优化提示词」，使用当前选择的模型优化这段 prompt。
 - 输入框为空但当前 Session 已有真人对话时，按钮显示为「预测提示词」，用于预测用户下一句。
@@ -18,7 +18,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏左侧加入一
 
 ## 功能
 
-- 在输入栏左侧、原有上下文/指令控件的旁边增加一个紧凑图标按钮。
+- 在输入栏右下区域、上下文占用图标右侧与发送按钮之间增加一个紧凑图标按钮。
 - 根据当前草稿和 Session 生命周期自动选择预测或优化模式。
 - 使用输入框当前选择的 provider/model，也就是用户按 Enter 发送时使用的同一个模型。
 - 模型增量直接流式写入草稿，并在请求完成前锁定输入框。
@@ -44,7 +44,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏左侧加入一
 推荐安装 Release 中已经构建好的 tarball，不需要执行构建脚本：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.3/dsh-prompt-for-me-0.6.3.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.4/dsh-prompt-for-me-0.6.4.tgz
 ```
 
 安装后重启 `dsh web`。
@@ -52,7 +52,7 @@ dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/re
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.3
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.4
 ```
 
 使用 pnpm 10 从 Git 安装时，可能需要在 Web profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 添加 `dsh-prompt-for-me: true`，然后重新运行命令。`prepare` 脚本只复制 checkout 中的 Host 文件并包装 Client factory，不会下载任何内容。
