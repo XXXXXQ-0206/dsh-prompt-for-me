@@ -1499,6 +1499,7 @@ module.exports = function createClientPlugin(React, options) {
       }, PromptForMePreview))
       slots.inject('settings.plugin.item', () => slots.register({
         name: 'settings.plugin.item',
+        key: 'prompt-for-me',
         id: 'prompt-for-me',
         order: 30,
         label: 'Prompt for Me / Prompt 嘴替',
