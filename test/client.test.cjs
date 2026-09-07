@@ -326,10 +326,9 @@ test('the browser plugin registers native and fallback surfaces and accepts Host
 
   assert.deepEqual(plugin.inject, ['modelDirectories', 'slots'])
   assert.deepEqual(injected, [
-    'conversation.input.right', 'conversation.input.right', 'conversation.input.dock', 'settings.plugin.item',
+    'conversation.input.right', 'conversation.input.dock', 'settings.plugin.item',
   ])
   assert.deepEqual(registrations.map(({ entry }) => [entry.name, entry.id]), [
-    ['conversation.input.right', 'prompt-for-me-force'],
     ['conversation.input.right', 'prompt-for-me'],
     ['conversation.input.dock', 'prompt-for-me-preview'],
     ['settings.plugin.item', 'prompt-for-me'],
