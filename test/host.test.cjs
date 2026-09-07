@@ -3,6 +3,9 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
+const { mkdtemp, mkdir, writeFile, rm } = require('node:fs/promises')
+const { tmpdir } = require('node:os')
+const { join } = require('node:path')
 const host = require('../src/index.cjs')
 const { resolveConfig } = require('../src/core.cjs')
 
@@ -117,6 +120,36 @@ test('generate reads events from the dsh Session snapshotEvents face', async () 
   assert.equal(result.ok, true)
   const framed = JSON.parse(requests[0].messages[0].content[0].text)
   assert.equal(framed.current.recentTurns.length, 1)
+})
+
+test('project context grounds prediction in a blank session', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pfm-project-'))
+  try {
+    await writeFile(join(directory, 'package.json'), JSON.stringify({
+      name: 'fixture', scripts: { build: 'tsc' },
+    }), 'utf8')
+    await mkdir(join(directory, 'src'), { recursive: true })
+    await writeFile(join(directory, 'src', 'main.ts'), 'export const main = 1\n', 'utf8')
+    const { ctx, requests } = contextWith(async function * () {
+      yield { type: 'text-delta', text: '继续实现 main.ts 的构建步骤。' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    })
+    const session = ctx.get('sessions').get('session-1')
+    session.events = []
+    session.header = { cwd: directory }
+    const result = await host._testing.createGenerateHandler(ctx, resolveConfig({}))({
+      sessionId: 'session-1', draft: '', mode: 'predict', trigger: { kind: 'manual' },
+      currentCycleSkipped: [], localOutcomes: [],
+    })
+    assert.equal(result.ok, true)
+    const framed = JSON.parse(requests[0].messages[0].content[0].text)
+    assert.equal(framed.project.cwd, directory)
+    assert.ok(framed.project.tree.includes('package.json'))
+    assert.ok(framed.project.tree.includes('src/main.ts'))
+    assert.equal(framed.project.manifests['package.json'].includes('tsc'), true)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test('automatic generation is bound to the latest completed turn at both commit checks', async () => {
