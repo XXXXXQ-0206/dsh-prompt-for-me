@@ -18,6 +18,8 @@
         maxRejectedSuggestions: 4
         maxLocalOutcomes: 50
         maxLocalOutcomesBytes: 131072
+        maxProjectContextBytes: 16384
+        maxProjectTreeFiles: 100
         maxOutputTokens: 2048
         timeoutMs: 30000
         shortcut: Mod+Shift+Space
