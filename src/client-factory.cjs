@@ -33,7 +33,7 @@ module.exports = function createClientPlugin(React, options) {
       }
   const streamGenerate = options && typeof options.generate === 'function'
     ? options.generate
-    : async (args, onCandidate, signal) => {
+    : async (args, onCandidate, signal, onDelta = () => {}) => {
         const response = await window.fetch(RPC_PATH, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -67,6 +67,8 @@ module.exports = function createClientPlugin(React, options) {
           const event = JSON.parse(line)
           if (event && event.type === 'candidate' && typeof event.candidate === 'string') {
             await onCandidate(event.candidate)
+          } else if (event && event.type === 'delta' && typeof event.text === 'string') {
+            await onDelta(event.text)
           } else if (event && event.type === 'done') {
             completion = { ok: true, requestId: event.requestId }
           } else if (event && event.type === 'error') {
@@ -178,6 +180,12 @@ module.exports = function createClientPlugin(React, options) {
         requestDraft: '',
         observedDraft: '',
         observedPhase: null,
+        mode: 'predict',
+        streamingText: '',
+        streamCandidate: undefined,
+        streamOriginal: undefined,
+        streamHistory: [],
+        streamIndex: 0,
         requestSeq: 0,
         pending: false,
         generationKind: null,
@@ -323,6 +331,117 @@ module.exports = function createClientPlugin(React, options) {
     if (actions && typeof actions.setDraft === 'function') actions.setDraft(text)
   }
 
+  function pushStreamHistory(store, text) {
+    const history = store.streamHistory
+    if (history[store.streamIndex] === text) return
+    const next = history.slice(0, store.streamIndex + 1)
+    next.push(text)
+    if (next.length > 100) next.splice(0, next.length - 100)
+    store.streamHistory = next
+    store.streamIndex = next.length - 1
+  }
+
+  function beginManualStream(store, draft) {
+    store.mode = draft.trim() === '' ? 'predict' : 'optimize'
+    store.streamingText = ''
+    store.streamCandidate = undefined
+    store.streamOriginal = draft
+    store.streamHistory = [draft]
+    store.streamIndex = 0
+  }
+
+  function appendManualStream(store, actions, text) {
+    const nextText = `${store.streamingText || ''}${text}`
+    store.streamingText = nextText
+    store.candidate = nextText
+    store.presentation = 'draft'
+    store.awaitingDraftAck = {
+      candidate: nextText,
+      previousDraft: store.streamOriginal,
+    }
+    pushStreamHistory(store, nextText)
+    setDraft(actions, nextText)
+    emit(store)
+  }
+
+  function finishManualStream(store, actions) {
+    const finalCandidate = typeof store.streamCandidate === 'string'
+      ? store.streamCandidate
+      : store.streamingText
+    if (typeof finalCandidate !== 'string' || finalCandidate.trim() === '') return false
+    if (finalCandidate !== store.streamingText) {
+      store.streamingText = finalCandidate
+      store.awaitingDraftAck = {
+        candidate: finalCandidate,
+        previousDraft: store.streamOriginal,
+      }
+      pushStreamHistory(store, finalCandidate)
+      setDraft(actions, finalCandidate)
+    }
+    store.candidate = finalCandidate
+    store.presentation = 'draft'
+    store.candidateSkipped = false
+    store.awaitingDraftAck = {
+      candidate: finalCandidate,
+      previousDraft: store.streamOriginal,
+    }
+    return true
+  }
+
+  function resetManualStream(store) {
+    store.mode = 'predict'
+    store.streamingText = ''
+    store.streamCandidate = undefined
+    store.streamOriginal = undefined
+    store.streamHistory = []
+    store.streamIndex = 0
+    store.candidate = undefined
+    store.awaitingDraftAck = null
+    store.presentation = 'none'
+  }
+
+  function stopManual(store, actions) {
+    if (!store.pending || store.generationKind !== 'manual') return false
+    const original = typeof store.streamOriginal === 'string'
+      ? store.streamOriginal
+      : store.requestDraft
+    cancelPending(store)
+    store.requestSeq += 1
+    resetManualStream(store)
+    if (typeof original === 'string') setDraft(actions, original)
+    store.phase = 'idle'
+    store.error = null
+    store.lastAcceptedTriggerAt = null
+    emit(store)
+    return true
+  }
+
+  function applyManualHistory(store, actions, direction) {
+    if (store.streamHistory.length < 2 || !Number.isFinite(direction)) return false
+    const nextIndex = Math.max(0, Math.min(
+      store.streamHistory.length - 1,
+      store.streamIndex + (direction < 0 ? -1 : 1),
+    ))
+    if (nextIndex === store.streamIndex) return false
+    const text = store.streamHistory[nextIndex]
+    store.streamIndex = nextIndex
+    store.streamingText = text
+    store.candidate = text
+    store.awaitingDraftAck = { candidate: text, previousDraft: store.streamOriginal }
+    setDraft(actions, text)
+    emit(store)
+    return true
+  }
+
+  function hasGenerationContext(session, draft) {
+    if (draft.trim() !== '') return true
+    if (session && typeof session.blank === 'boolean') {
+      return session.blank === false
+    }
+    const turnEnds = session && session.turnEnds
+    return !turnEnds || typeof turnEnds.size !== 'number' || turnEnds.size > 0
+  }
+
   function offerSuggestion(actions, suggestion) {
     if (!actions || typeof actions.offerSuggestion !== 'function') return false
     try {
@@ -408,6 +527,7 @@ module.exports = function createClientPlugin(React, options) {
     store.phase = 'loading'
     store.error = null
     store.requestDraft = draft
+    if (kind === 'manual') beginManualStream(store, draft)
     store.pending = true
     store.generationKind = kind
     store.requestSeq += 1
@@ -420,16 +540,20 @@ module.exports = function createClientPlugin(React, options) {
       result = await streamGenerate({
         sessionId,
         draft: store.sourceDraft,
+        mode: store.mode,
         trigger: triggerKind,
         currentCycleSkipped: [...store.currentCycleSkipped],
         localOutcomes: readOutcomes(),
       }, async (candidate) => {
         if (seq !== store.requestSeq || controller.signal.aborted
           || typeof candidate !== 'string' || candidate.trim() === '') return
-        if (store.observedDraft === draft) {
-          showCandidate(sessionId, store, actions, candidate.trim(), kind)
-        }
-      }, controller.signal)
+        if (kind === 'manual') store.streamCandidate = candidate.trim()
+        else showCandidate(sessionId, store, actions, candidate.trim(), kind)
+      }, controller.signal, async (text) => {
+        if (seq !== store.requestSeq || controller.signal.aborted
+          || typeof text !== 'string' || text === '' || kind !== 'manual') return
+        appendManualStream(store, actions, text)
+      })
     } catch (error) {
       if (controller.signal.aborted) return
       result = { ok: false, message: 'Prompt for Me could not reach the Harness Host.' }
@@ -438,9 +562,15 @@ module.exports = function createClientPlugin(React, options) {
     store.pending = false
     store.generationKind = null
     store.controller = null
-    if (!result || result.ok !== true || activeCandidate(store) === undefined
-      || store.candidateSkipped) {
-      if (activeCandidate(store) !== undefined) clearCandidate(store, actions)
+    const manualCandidate = kind === 'manual'
+      ? (store.streamCandidate || store.streamingText || '')
+      : activeCandidate(store)
+    if (!result || result.ok !== true || typeof manualCandidate !== 'string'
+      || manualCandidate.trim() === '' || store.candidateSkipped) {
+      if (kind === 'manual' && typeof store.streamOriginal === 'string') {
+        setDraft(actions, store.streamOriginal)
+      }
+      resetManualStream(store)
       store.phase = kind === 'automatic' ? 'idle' : 'error'
       store.error = kind === 'automatic'
         ? null
@@ -450,6 +580,10 @@ module.exports = function createClientPlugin(React, options) {
       emit(store)
       return
     }
+    if (kind === 'manual') {
+      finishManualStream(store, actions)
+      store.streamCandidate = undefined
+    }
     store.phase = 'ready'
     store.error = null
     emit(store)
@@ -458,7 +592,7 @@ module.exports = function createClientPlugin(React, options) {
   async function trigger(sessionId, draft, actions) {
     const store = storeFor(sessionId)
     store.pendingAutomaticTrigger = undefined
-    if ((store.pending && store.generationKind === 'manual') || store.awaitingDraftAck !== null) return
+    if (stopManual(store, actions)) return
     if (store.pending) {
       cancelPending(store)
       store.requestSeq += 1
@@ -813,7 +947,7 @@ module.exports = function createClientPlugin(React, options) {
   }
 
   const CSS = [
-    '.dsh-pfm-button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:.82}',
+    '.dsh-pfm-button{display:inline-flex;align-items:center;justify-content:center;order:-1;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer;opacity:.82}',
     '.dsh-pfm-button:hover{background:color-mix(in srgb,currentColor 9%,transparent);opacity:1}',
     '.dsh-pfm-button:disabled{cursor:default;opacity:.4}',
     '.dsh-pfm-button[data-error="true"]{color:#d94b4b}',
@@ -890,15 +1024,24 @@ module.exports = function createClientPlugin(React, options) {
     React.createElement('path', { d: 'M5.5 14l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8z' }))
   }
 
-  /** 随时生成：无论输入是否为空、Session 是否空闲、plan mode 是否生效，点击都直接生成提示词。 */
+  /** 随时生成/优化：草稿非空时优化原始 prompt；草稿为空且已有上下文时预测下一步。 */
   function ForcePromptButton(props) {
-    const sessionId = props && props.session && props.session.sessionId
-    const input = props && props.input ? props.input : {}
+    const sessionId = typeof props.sessionId === 'string' ? props.sessionId : undefined
+    const input = typeof props.useInput === 'function'
+      ? props.useInput((value) => value)
+      : undefined
+    const session = typeof props.useSession === 'function'
+      ? props.useSession((value) => value)
+      : undefined
     const actions = props && props.inputActions
     const draft = typeof input.draft === 'string' ? input.draft : ''
     const [, rerender] = React.useReducer((value) => value + 1, 0)
+    const buttonRef = React.useRef(null)
     const store = storeFor(sessionId)
     const zh = isChinese()
+    const locked = store.pending && store.generationKind === 'manual'
+    const contextReady = hasGenerationContext(session, draft)
+    const disabled = !locked && !contextReady
     React.useEffect(() => {
       const listener = () => rerender()
       store.listeners.add(listener)
@@ -911,112 +1054,85 @@ module.exports = function createClientPlugin(React, options) {
         }
       }
     }, [sessionId, store])
+    React.useEffect(() => {
+      const card = buttonRef.current && buttonRef.current.closest('[data-composer-card]')
+      const editor = card && (card.querySelector('[data-composer-input]') || card.querySelector('textarea'))
+      if (!editor) return undefined
+      const onKeyDown = (event) => {
+        if (event.isComposing || event.repeat) return
+        const ctrl = event.ctrlKey || event.metaKey
+        const key = typeof event.key === 'string' ? event.key.toLowerCase() : ''
+        const undo = ctrl && !event.shiftKey && key === 'z'
+        const redo = ctrl && (key === 'y' || (event.shiftKey && key === 'z'))
+        const hasHistory = store.streamHistory.length > 1
+        if (undo && hasHistory) {
+          event.preventDefault()
+          event.stopPropagation()
+          applyManualHistory(store, actions, -1)
+          return
+        }
+        if (redo && hasHistory) {
+          event.preventDefault()
+          event.stopPropagation()
+          applyManualHistory(store, actions, 1)
+          return
+        }
+        if (locked) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+      }
+      const onBeforeInput = (event) => {
+        if (locked) event.preventDefault()
+      }
+      editor.addEventListener('keydown', onKeyDown, true)
+      editor.addEventListener('beforeinput', onBeforeInput, true)
+      return () => {
+        editor.removeEventListener('keydown', onKeyDown, true)
+        editor.removeEventListener('beforeinput', onBeforeInput, true)
+      }
+    }, [locked, sessionId, store, actions])
     if (sessionId === undefined || !actions || typeof actions.setDraft !== 'function') return null
-    const label = zh ? '生成提示词' : 'Generate prompt'
+    const label = draft.trim() === ''
+      ? (zh ? '预测提示词' : 'Predict prompt')
+      : (zh ? '优化提示词' : 'Optimize prompt')
+    const loading = locked && store.phase === 'loading'
+    const failed = store.phase === 'error'
+    const title = disabled
+      ? (zh ? '新会话没有足够上下文，请先输入任务' : 'New session needs a draft first')
+      : loading
+      ? (zh ? '正在生成…' : 'Generating…')
+      : failed
+      ? (zh ? '生成失败，点击重试' : 'Generation failed. Click to retry')
+      : label
     return React.createElement('button', {
+      ref: buttonRef,
       type: 'button',
       className: 'dsh-pfm-button dsh-pfm-force',
-      title: label,
-      'aria-label': label,
+      title,
+      'aria-label': title,
       'data-force': 'true',
-      onClick: () => { void trigger(sessionId, draft, actions) },
+      'data-loading': String(loading),
+      'data-error': String(failed),
+      'data-locked': String(locked),
+      'aria-disabled': String(disabled),
+      disabled,
+      onClick: () => {
+        if (stopManual(store, actions)) return
+        void trigger(sessionId, draft, actions)
+      },
     }, React.createElement(SparklesIcon))
   }
 
   function PromptForMeButton(props) {
-    const sessionId = props && props.session && props.session.sessionId
-    const input = props && props.input ? props.input : {}
+    const sessionId = typeof props.sessionId === 'string' ? props.sessionId : undefined
     const actions = props && props.inputActions
-    const draft = typeof input.draft === 'string' ? input.draft : ''
-    const phase = typeof input.phase === 'string' ? input.phase : 'idle'
-    const [, rerender] = React.useReducer((value) => value + 1, 0)
-    const buttonRef = React.useRef(null)
-    const store = storeFor(sessionId)
-    const plan = props && typeof props.useProjection === 'function'
-      ? props.useProjection('plan')
-      : undefined
-    const planActive = plan && typeof plan === 'object'
-      ? (plan.pending ? !plan.active : plan.active)
-      : false
-
-    React.useEffect(() => {
-      const listener = () => rerender()
-      store.listeners.add(listener)
-      return () => {
-        store.listeners.delete(listener)
-        if (store.listeners.size === 0) {
-          cancelPending(store)
-          store.requestSeq += 1
-          stores.delete(sessionId)
-        }
-      }
-    }, [sessionId, store])
-
-    React.useEffect(() => {
-      observe(sessionId, input, props.session, actions, !planActive)
-    }, [sessionId, input, props.session, actions, planActive])
-
-    React.useEffect(() => {
-      const onKeyDown = (event) => {
-        const active = document.activeElement
-        const ownCard = buttonRef.current && buttonRef.current.closest('[data-composer-card]')
-        if (!active || active.tagName !== 'TEXTAREA'
-          || active.closest('[data-composer-card]') !== ownCard
-          || event.isComposing || !shortcutMatches(event)
-          || (props.session && (props.session.running || props.session.removed))) return
-        event.preventDefault()
-        void trigger(sessionId, draft, actions)
-      }
-      window.addEventListener('keydown', onKeyDown)
-      return () => window.removeEventListener('keydown', onKeyDown)
-    }, [sessionId, draft, actions])
-
     if (sessionId === undefined || !actions || typeof actions.setDraft !== 'function') return null
-    const loading = store.phase === 'loading'
-    const locked = phase === 'adjudicating' || phase === 'submitting'
-      || Boolean(props.session && (props.session.running || props.session.removed))
-      || store.awaitingDraftAck !== null
-    const zh = isChinese()
-    const title = tooltipText(store, zh)
-    const label = store.presentation === 'ghost'
-      ? (zh ? '换一个并写入' : 'Try another and fill')
-      : activeCandidate(store) === undefined
-      ? (zh ? '生成下一句' : 'Generate next message')
-      : (zh ? '换一条' : 'Try another')
-
-    const triggerButton = React.createElement('button', {
-      ref: buttonRef,
-      type: 'button',
-      className: 'dsh-pfm-button',
-      title,
-      'aria-label': label,
-      'data-loading': String(loading),
-      'data-error': String(store.phase === 'error'),
-      disabled: (loading && store.generationKind !== 'automatic') || locked,
-      onClick: () => { void trigger(sessionId, draft, actions) },
-    }, React.createElement(SparklesIcon))
-    const forceButton = React.createElement(ForcePromptButton, props)
-    if (store.presentation !== 'ghost' || !input.suggestion
-      || input.suggestion.id !== store.suggestionId
-      || typeof actions.acceptSuggestion !== 'function') {
-      return React.createElement(React.Fragment, null, forceButton, triggerButton)
-    }
-    const useLabel = zh ? '采用建议' : 'Use suggestion'
-    return React.createElement(React.Fragment, null,
-      forceButton,
-      React.createElement('button', {
-        type: 'button',
-        className: 'dsh-pfm-button',
-        title: `${useLabel} (Tab)`,
-        'aria-label': useLabel,
-        onMouseDown: (event) => event.preventDefault(),
-        onClick: () => actions.acceptSuggestion(store.suggestionId),
-      }, React.createElement('span', { 'aria-hidden': 'true' }, '✓')),
-      triggerButton)
+    return React.createElement(ForcePromptButton, props)
   }
 
   function PromptForMePreview(props) {
-    const sessionId = props && props.session && props.session.sessionId
+    const sessionId = typeof props.sessionId === 'string' ? props.sessionId : undefined
     const actions = props && props.inputActions
     const [, rerender] = React.useReducer((value) => value + 1, 0)
     const store = storeFor(sessionId)
@@ -1101,7 +1217,7 @@ module.exports = function createClientPlugin(React, options) {
     const zh = isChinese()
     const copy = zh ? {
       title: 'Prompt for Me / Prompt 嘴替',
-      description: '自动准备下一条消息，也可随时手动触发。',
+      description: '预测下一条消息，或优化输入栏中的当前提示词。',
       expand: '展开设置', collapse: '收起设置', unsaved: '未保存',
       automatic: 'Agent 回复后自动建议',
       automaticHint: '回复完成且输入框为空时，以 Ghost Text 展示一条建议。',
@@ -1120,7 +1236,7 @@ module.exports = function createClientPlugin(React, options) {
       discard: '放弃', save: '保存', saving: '保存中…',
     } : {
       title: 'Prompt for Me',
-      description: 'Prepare the next message automatically, or trigger it whenever you need it.',
+      description: 'Predict the next message, or optimize the prompt currently in the composer.',
       expand: 'Expand settings', collapse: 'Collapse settings', unsaved: 'Unsaved',
       automatic: 'Suggest after the Agent replies',
       automaticHint: 'When a reply finishes and the composer is empty, offer one suggestion as ghost text.',
@@ -1263,16 +1379,6 @@ module.exports = function createClientPlugin(React, options) {
       !writable ? h('p', { className: 'dsh-pfm-settings-status', role: 'status' }, copy.readOnly) : null,
       h('div', { className: 'dsh-pfm-settings-row' },
         h('span', { className: 'dsh-pfm-settings-copy' },
-          h('span', { className: 'dsh-pfm-settings-label' }, copy.automatic),
-          h('span', { className: 'dsh-pfm-settings-hint' }, copy.automaticHint)),
-        h('label', { className: 'dsh-pfm-switch' },
-          h('input', {
-            type: 'checkbox', role: 'switch', checked: draft.automatic, disabled: !writable,
-            'aria-label': copy.automatic,
-            onChange: (event) => setDraft({ ...draft, automatic: event.target.checked }),
-          }), h('span'))),
-      h('div', { className: 'dsh-pfm-settings-row' },
-        h('span', { className: 'dsh-pfm-settings-copy' },
           h('span', { className: 'dsh-pfm-settings-label' }, copy.shortcut),
           h('span', { className: 'dsh-pfm-settings-hint' }, copy.shortcutHint),
           shortcutError ? h('span', {
@@ -1379,8 +1485,8 @@ module.exports = function createClientPlugin(React, options) {
       )
       void settingsScope.load()
       void ensureConfiguration(true)
-      slots.inject('conversation.input.right', () => slots.register({
-        name: 'conversation.input.right',
+      slots.inject('conversation.input.left', () => slots.register({
+        name: 'conversation.input.left',
         id: 'prompt-for-me',
         order: 90,
         label: 'Prompt for Me / Prompt 嘴替',
@@ -1405,9 +1511,11 @@ module.exports = function createClientPlugin(React, options) {
     },
     _testing: {
       activeCandidate,
+      applyManualHistory,
       applyConfiguration,
       config,
       createSettingsController,
+      hasGenerationContext,
       modelOptions,
       normalizeUserSettings,
       observe,
@@ -1417,6 +1525,7 @@ module.exports = function createClientPlugin(React, options) {
       shortcutMatches,
       shortcutFromEvent,
       storeFor,
+      stopManual,
       tooltipText,
       trigger,
       useFallback,
