@@ -7,7 +7,7 @@
 Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加入一个紧凑按钮：位于上下文占用图标的右侧、发送按钮左侧，支持两种模式：
 
 - 输入框有非全空格文本时，按钮显示为「优化提示词」，使用当前选择的模型优化这段 prompt。
-- 输入框为空但当前 Session 已有真人对话时，按钮显示为「预测提示词」，用于预测用户下一句。
+- 输入框为空但已打开项目时，按钮显示为「设计提示词」，用于设计让当前项目继续前进的下一步开发 Prompt。
 - 新 Session 既无草稿也无真人上下文时，按钮会禁用，并提示先输入任务；此时没有足够证据猜测下一句。
 
 结果会以流式方式直接写入草稿。生成期间输入框会锁定；再次点击按钮会立即中断请求并恢复原始草稿；`Ctrl+Z` / `Ctrl+Y` 可在生成历史中撤销和重做。
@@ -19,8 +19,8 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加
 ## 功能
 
 - 在输入栏右下区域、上下文占用图标右侧与发送按钮之间增加一个紧凑图标按钮。
-- 根据当前草稿和 Session 生命周期自动选择预测或优化模式。
-- 基于当前工作区项目进行预测：扫描 Session 的 `cwd`，最多纳入 100 个项目文件，并读取 `package.json`、`pyproject.toml`、`go.mod`、`Cargo.toml`、`tsconfig.json`、`README.md` 等关键 manifest。
+- 根据当前草稿和项目状态自动选择“设计提示词”或“优化提示词”。
+- 项目只作为背景：扫描 Session 的 `cwd`，最多纳入 100 个项目文件，读取 `package.json`、`pyproject.toml`、`go.mod`、`Cargo.toml`、`tsconfig.json`、`README.md` 等关键 manifest，并观察最近 git 状态。最终输出不是项目摘要，也不是助手回复，而是一条可执行的提示词。
 - 使用输入框当前选择的 provider/model，也就是用户按 Enter 发送时使用的同一个模型。
 - 模型增量直接流式写入草稿，并在请求完成前锁定输入框。
 - 生成中再次点击会中止请求并恢复原始草稿。
@@ -35,7 +35,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加
 | --- | --- |
 | 输入任务后点击「优化提示词」 | 使用当前模型优化 prompt，并流式写入草稿。 |
 | 新 Session 且草稿为空 | 按钮禁用，等待输入任务或已有真人上下文。 |
-| 已打开项目且草稿为空 | 基于当前项目文件与进度预测下一条开发提示词。 |
+| 已打开项目且草稿为空 | 基于当前项目文件、git 状态与未完成工作，设计下一步值得执行的开发提示词。 |
 | 生成中再点按钮 | 终止请求并恢复原始草稿，便于继续修改。 |
 | `Ctrl+Z` / `Ctrl+Y` | 在流式生成历史中撤销/重做。 |
 | 按 Enter | 只发送当前看到的草稿；插件自身绝不提交。 |
@@ -45,7 +45,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加
 推荐安装 Release 中已经构建好的 tarball，不需要执行构建脚本：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.5/dsh-prompt-for-me-0.6.5.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.6/dsh-prompt-for-me-0.6.6.tgz
 ```
 
 安装后重启 `dsh web`。
@@ -53,7 +53,7 @@ dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/re
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.5
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.6
 ```
 
 使用 pnpm 10 从 Git 安装时，可能需要在 Web profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 添加 `dsh-prompt-for-me: true`，然后重新运行命令。`prepare` 脚本只复制 checkout 中的 Host 文件并包装 Client factory，不会下载任何内容。
@@ -95,15 +95,15 @@ dsh plugin --profile web remove dsh-prompt-for-me
 每次生成建议时，Host 可能把下列有界文本发送给当前选择的模型提供方：
 
 - 当前草稿；
-- 有界的项目快照：当前目录、源码文件树和关键 manifest 摘要；
+- 有界的项目快照：当前目录、源码文件树、关键 manifest 摘要和最近 git 状态/diff 摘要；
 - 当前会话最近 3 轮真人用户/助手文本；
 - 当前会话中已发送的建议编辑、原样接受和拒绝记录；
 - 来自最多 20 个历史会话的手写提示词和建议交互原始样本；
 - 本轮最多 10 条已经跳过的建议，用于让模型避免重复或改写复述。
 
-当前草稿、项目快照和最近 3 轮决定当前任务、意图和消息内容；项目上下文让预测返回可执行的工程提示词，而不是泛泛的助手回复。当前会话反馈只调整眼前的表达；跨会话记忆只能影响长期的风格、详略和工作流偏好。手写提示词和编辑后发送的建议权重高于原样接受，拒绝记录只作为较弱的负向信号。编辑建议后再次 Trigger 会拒绝原建议，但不会把尚未发送的编辑结果当成正向偏好。
+当前草稿、项目快照和最近 3 轮用于理解当前任务、意图和下一步；项目上下文只是背景，最终目标是设计可执行的工程提示词，而不是泛泛的助手回复。当前会话反馈只调整眼前的表达；跨会话记忆只能影响长期的风格、详略和工作流偏好。手写提示词和编辑后发送的建议权重高于原样接受，拒绝记录只作为较弱的负向信号。编辑建议后再次 Trigger 会拒绝原建议，但不会把尚未发送的编辑结果当成正向偏好。
 
-Harness 会把工作区指令、运行时上下文和 Skill 列表记录为用户角色事件；插件会从会话轮次和偏好记忆中排除这些非真人来源。只有既没有草稿也没有足够项目证据的新 Session 才会禁用预测；工作区包含源码或 manifest 后即可进行项目级预测。
+Harness 会把工作区指令、运行时上下文和 Skill 列表记录为用户角色事件；插件会从会话轮次和偏好记忆中排除这些非真人来源。只有既没有草稿也没有足够项目证据的新 Session 才会禁用；工作区包含源码或 manifest 后即可进行项目级提示词设计。
 
 常见 API Key、token、password 和 Bearer token 会在模型调用前替换为 `[REDACTED_SECRET]`。插件不会收集附件、工具参数、文件、凭证或二进制内容；没有分析上报服务，只会调用 Harness 已选择的模型路由。
 
@@ -113,7 +113,7 @@ DeepSeek Harness `0.1.0-rc.6` 尚未提供下游插件注册自定义持久化 s
 
 生成 RPC 使用 NDJSON。原始 prompt 增量会边到达边写入草稿，最终候选在请求结束前按输出上限校验；模型会按要求直接输出纯文本 prompt，不返回 JSON 包装。失败会显示在按钮提示中，可再次点击重试。
 
-辅助请求始终使用 `off` reasoning。模型收到一段按预测/优化模式切换的系统指令，以及一条包含 `mode`、`originalPrompt`、`current`、`currentSessionFeedback`、`userPreferenceMemory` 和 `currentCycleSkipped` 的 JSON 用户消息；不会收到工具定义或附件。
+辅助请求始终使用 `off` reasoning。模型收到一段按“设计提示词/优化提示词”模式切换的系统指令，以及一条包含 `mode`、`originalPrompt`、`project`、`current`、`currentSessionFeedback`、`userPreferenceMemory` 和 `currentCycleSkipped` 的 JSON 用户消息；不会收到工具定义或附件。
 
 Host 在内存中保留最近 50 条隐私安全的性能记录，并把每条记录以 `prompt-for-me metrics` 写入日志。记录包含模型路由、各类文本的字节数/条数、历史读取和输入组装耗时、首个模型增量/reasoning/text 的时间、建议到达时间、模型与请求总耗时，以及提供方返回的 token usage；不包含提示词、候选或交互结果正文。可查询当前进程：
 
