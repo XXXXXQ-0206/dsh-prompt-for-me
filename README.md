@@ -44,7 +44,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 The release tarball is the simplest option because it contains prebuilt Host and Client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.2/dsh-prompt-for-me-0.6.2.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.3/dsh-prompt-for-me-0.6.3.tgz
 ```
 
 Restart `dsh web` after installation.
@@ -52,7 +52,7 @@ Restart `dsh web` after installation.
 You may also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.2
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.3
 ```
 
 pnpm 10 may ask you to allow the package's `prepare` script for a Git install. Add `dsh-prompt-for-me: true` under `allowBuilds` in the Web profile's `pnpm-workspace.yaml`, then run the command again. The script only copies the checked-out Host files and wraps the checked-out Client factory; it performs no downloads.
