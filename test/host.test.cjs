@@ -102,6 +102,23 @@ test('generate reuses the session route and sends bounded contextual JSON withou
   assert.deepEqual(framed.currentCycleSkipped, ['Already shown'])
 })
 
+test('generate reads events from the dsh Session snapshotEvents face', async () => {
+  const { ctx, requests } = contextWith(async function * () {
+    yield { type: 'text-delta', text: candidateLines('A') }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })
+  const session = ctx.get('sessions').get('session-1')
+  const stored = [...session.events]
+  delete session.events
+  session.snapshotEvents = () => stored
+  const result = await host._testing.createGenerateHandler(ctx, resolveConfig({}))({
+    sessionId: 'session-1', draft: '', trigger: { kind: 'manual' }, currentCycleSkipped: [], localOutcomes: [],
+  })
+  assert.equal(result.ok, true)
+  const framed = JSON.parse(requests[0].messages[0].content[0].text)
+  assert.equal(framed.current.recentTurns.length, 1)
+})
+
 test('automatic generation is bound to the latest completed turn at both commit checks', async () => {
   const first = contextWith(async function * () {
     yield { type: 'text-delta', text: `${candidateLines('A')}\n` }
