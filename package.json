@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-for-me",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Prompt optimizer and next-message predictor for DeepSeek Harness, with streamed direct-fill generation.",
   "type": "commonjs",
   "main": "lib/index.cjs",
