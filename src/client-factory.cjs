@@ -1104,7 +1104,7 @@ module.exports = function createClientPlugin(React, options) {
     }, [locked, sessionId, store, actions])
     if (sessionId === undefined || !actions || typeof actions.setDraft !== 'function') return null
     const label = draft.trim() === ''
-      ? (zh ? '预测提示词' : 'Predict prompt')
+      ? (zh ? '设计提示词' : 'Design prompt')
       : (zh ? '优化提示词' : 'Optimize prompt')
     const loading = locked && store.phase === 'loading'
     const failed = store.phase === 'error'
@@ -1227,7 +1227,7 @@ module.exports = function createClientPlugin(React, options) {
     const zh = isChinese()
     const copy = zh ? {
       title: 'Prompt for Me / Prompt 嘴替',
-      description: '预测下一条消息，或优化输入栏中的当前提示词。',
+      description: '设计下一步开发提示词，或优化输入栏中的当前草稿。',
       expand: '展开设置', collapse: '收起设置', unsaved: '未保存',
       automatic: 'Agent 回复后自动建议',
       automaticHint: '回复完成且输入框为空时，以 Ghost Text 展示一条建议。',
@@ -1246,7 +1246,7 @@ module.exports = function createClientPlugin(React, options) {
       discard: '放弃', save: '保存', saving: '保存中…',
     } : {
       title: 'Prompt for Me',
-      description: 'Predict the next message, or optimize the prompt currently in the composer.',
+      description: 'Design the next development prompt, or optimize the current composer draft.',
       expand: 'Expand settings', collapse: 'Collapse settings', unsaved: 'Unsaved',
       automatic: 'Suggest after the Agent replies',
       automaticHint: 'When a reply finishes and the composer is empty, offer one suggestion as ghost text.',
