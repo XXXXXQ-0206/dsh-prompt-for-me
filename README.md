@@ -7,7 +7,7 @@
 Prompt for Me (中文名：Prompt 嘴替) adds one compact button to the DeepSeek Harness composer. It has two modes:
 
 - If the composer contains non-space text, the button becomes **优化提示词** and asks the currently selected Harness model to optimize that prompt.
-- If the composer is empty but the current session already has human conversation, the button becomes **预测提示词** and predicts the user's next message.
+- If the composer is empty but a project is open, the button becomes **设计提示词** and designs the next prompt that should move the implementation forward.
 - A brand-new blank session with no human context disables the button and asks you to type a task first; there is not enough evidence to guess a next prompt.
 
 The result is streamed directly into the composer as a draft. Input is locked while the model is working, clicking the button again immediately cancels generation and restores the original draft, and `Ctrl+Z` / `Ctrl+Y` step through the generated history.
@@ -19,8 +19,8 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 ## What it does
 
 - Adds a single compact icon button to the right of the context-meter icon, immediately left of the send button.
-- Chooses automatically between prediction and optimization using the live current draft and session lifecycle.
-- Grounds prediction in the current workspace: scans the session `cwd`, includes up to 100 project files, and reads key manifests such as `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `tsconfig.json`, and `README.md`.
+- Chooses automatically between prompt design and optimization using the live current draft and project state.
+- Treats the project only as background: scans the session `cwd`, includes up to 100 project files, reads key manifests such as `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `tsconfig.json`, `README.md`, and observes recent git status. The final output is a designed prompt, not a project summary or assistant reply.
 - Uses the exact provider/model currently selected in the composer (the same selection used when you press Enter).
 - Streams model output into the draft and keeps the composer locked until the request completes.
 - Aborts the request and restores the original draft when the button is clicked again.
@@ -35,7 +35,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 | --- | --- |
 | Type a task and click 优化提示词 | The current prompt is optimized using the selected model and streamed into the draft. |
 | Leave the draft empty in a new session | The button is disabled until a task is typed or human context exists. |
-| Leave the draft empty and open the project | The selected model predicts the next development prompt for the current project. |
+| Leave the draft empty and open the project | The selected model designs the next high-value development prompt for the current project. |
 | Click the button while generating | The request is aborted and the original draft is restored so you can edit it. |
 | `Ctrl+Z` / `Ctrl+Y` | Step backward/forward through the generated stream history. |
 | Press Enter | Only the draft you see is submitted; the plugin never submits by itself. |
@@ -45,7 +45,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 The release tarball is the simplest option because it contains prebuilt Host and Client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.5/dsh-prompt-for-me-0.6.5.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.6/dsh-prompt-for-me-0.6.6.tgz
 ```
 
 Restart `dsh web` after installation.
@@ -53,7 +53,7 @@ Restart `dsh web` after installation.
 You may also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.5
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.6
 ```
 
 pnpm 10 may ask you to allow the package's `prepare` script for a Git install. Add `dsh-prompt-for-me: true` under `allowBuilds` in the Web profile's `pnpm-workspace.yaml`, then run the command again. The script only copies the checked-out Host files and wraps the checked-out Client factory; it performs no downloads.
@@ -95,15 +95,15 @@ Most users can pin an auxiliary model from the Web UI advanced settings. Deploym
 On each generation request, the Host may send these bounded text fields to the selected model provider:
 
 - the current draft;
-- a bounded project snapshot containing the current directory, source tree, and key manifest excerpts;
+- a bounded project snapshot containing the current directory, source tree, key manifest excerpts, and recent git status/diff summary;
 - the last three direct-human/assistant turns from the current session;
 - current-session submitted suggestion edits, exact accepts, and rejected suggestions;
 - bounded raw examples from manual prompts and suggestion interactions in up to 20 earlier sessions;
 - up to ten suggestions skipped during the current cycle, so the model can avoid repeating or paraphrasing them.
 
-The current draft, project snapshot, and recent turns determine the task, intent, and message content. Project grounding makes prediction return an actionable engineering prompt instead of a generic assistant response. Current-session feedback adjusts the immediate wording. Cross-session memory may influence only durable style, detail, and workflow preferences. Manual prompts and submitted suggestion edits carry more weight than exact accepts; rejected suggestions are weak negative evidence. Editing a suggestion and triggering again rejects the original suggestion but does not treat the unsubmitted edit as a positive preference.
+The current draft, project snapshot, and recent turns help understand the task, intent, and next step. Project grounding is background, not the answer: the design mode returns an actionable engineering prompt instead of a generic assistant response. Current-session feedback adjusts the immediate wording. Cross-session memory may influence only durable style, detail, and workflow preferences. Manual prompts and submitted suggestion edits carry more weight than exact accepts; rejected suggestions are weak negative evidence. Editing a suggestion and triggering again rejects the original suggestion but does not treat the unsubmitted edit as a positive preference.
 
-Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. A brand-new session remains disabled only when there is neither a typed draft nor enough project evidence; once the workspace contains source files or manifests, project-backed prediction becomes available.
+Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. A brand-new session remains disabled only when there is neither a typed draft nor enough project evidence; once the workspace contains source files or manifests, prompt design becomes available.
 
 Common API-key, token, password, and Bearer-token patterns are replaced with `[REDACTED_SECRET]` before the model call. Attachments, tool arguments, files, credentials, and binary blocks are not collected. The plugin has no analytics endpoint and sends data only to the model route already selected in Harness.
 
@@ -113,7 +113,7 @@ DeepSeek Harness `0.1.0-rc.6` does not expose downstream registration for custom
 
 The generation RPC uses NDJSON. Raw prompt deltas are streamed into the draft as they arrive, and the final candidate is validated against the bounded output limit before the request finishes. Failures remain visible on the button's tooltip and can be retried by clicking again.
 
-The auxiliary request always uses reasoning effort `off`. The model receives one mode-aware system instruction plus one JSON user message with `mode`, `originalPrompt`, `current`, `currentSessionFeedback`, `userPreferenceMemory`, and `currentCycleSkipped`. It receives no tool schemas or attachments.
+The auxiliary request always uses reasoning effort `off`. The model receives one design/optimize-aware system instruction plus one JSON user message with `mode`, `originalPrompt`, `project`, `current`, `currentSessionFeedback`, `userPreferenceMemory`, and `currentCycleSkipped`. It receives no tool schemas or attachments.
 
 The Host retains the latest 50 privacy-safe performance records in memory and logs each record as `prompt-for-me metrics`. Records contain model route, text byte/item counts, history/input preparation time, first model chunk/reasoning/text times, suggestion arrival time, total model/request time, and provider token usage. They contain no prompt, candidate, or outcome text. Query the current process with:
 
