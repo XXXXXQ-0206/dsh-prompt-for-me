@@ -433,8 +433,10 @@ module.exports = function createClientPlugin(React, options) {
     return true
   }
 
-  function hasGenerationContext(session, draft) {
+  function hasGenerationContext(session, draft, workspacePath = '') {
     if (draft.trim() !== '') return true
+    if (session && session.blank === true && typeof workspacePath === 'string'
+      && workspacePath !== '') return true
     if (session && typeof session.blank === 'boolean') {
       return session.blank === false
     }
@@ -1034,6 +1036,13 @@ module.exports = function createClientPlugin(React, options) {
     const session = typeof props.useSession === 'function'
       ? props.useSession((value) => value)
       : undefined
+    const workspaces = typeof props.useWorkspaces === 'function'
+      ? props.useWorkspaces((value) => value)
+      : undefined
+    const workspacePath = Array.isArray(workspaces && workspaces.items)
+      && workspaces.items.length > 0
+      ? (workspaces.items[0].path || '')
+      : ''
     const actions = props && props.inputActions
     const draft = typeof input.draft === 'string' ? input.draft : ''
     const [, rerender] = React.useReducer((value) => value + 1, 0)
@@ -1041,7 +1050,7 @@ module.exports = function createClientPlugin(React, options) {
     const store = storeFor(sessionId)
     const zh = isChinese()
     const locked = store.pending && store.generationKind === 'manual'
-    const contextReady = hasGenerationContext(session, draft)
+    const contextReady = hasGenerationContext(session, draft, workspacePath)
     const disabled = !locked && !contextReady
     React.useEffect(() => {
       const listener = () => rerender()
