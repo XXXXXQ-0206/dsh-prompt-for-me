@@ -44,7 +44,7 @@ Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏左侧加入一
 推荐安装 Release 中已经构建好的 tarball，不需要执行构建脚本：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.1/dsh-prompt-for-me-0.6.1.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.2/dsh-prompt-for-me-0.6.2.tgz
 ```
 
 安装后重启 `dsh web`。
@@ -52,7 +52,7 @@ dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/re
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.1
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.2
 ```
 
 使用 pnpm 10 从 Git 安装时，可能需要在 Web profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 添加 `dsh-prompt-for-me: true`，然后重新运行命令。`prepare` 脚本只复制 checkout 中的 Host 文件并包装 Client factory，不会下载任何内容。
