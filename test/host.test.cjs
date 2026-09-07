@@ -55,7 +55,7 @@ function contextWith(streamFactory) {
       ],
       readSession: async () => ({ events: [userEvent('Keep changes small and run focused tests.')] }),
     },
-    agentDefaultModel: { currentSelection: () => ({ provider: 'default', model: 'default' }) },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'live-provider', model: 'live-model' }) },
   }
   return { ctx: { get: (name) => services[name] }, requests, session }
 }
@@ -82,8 +82,8 @@ test('generate reuses the session route and sends bounded contextual JSON withou
   assert.equal(result.ok, true)
   assert.equal(result.candidate, 'A')
   assert.equal(requests.length, 1)
-  assert.equal(requests[0].provider, 'session-provider')
-  assert.equal(requests[0].model, 'session-model')
+  assert.equal(requests[0].provider, 'live-provider')
+  assert.equal(requests[0].model, 'live-model')
   assert.equal(requests[0].reasoningEffort, 'off')
   assert.equal(requests[0].tools, undefined)
   const framed = JSON.parse(requests[0].messages[0].content[0].text)
@@ -176,7 +176,7 @@ test('generate records token usage and privacy-safe stage metrics', async () => 
   assert.equal(result.ok, true)
   assert.equal(metrics.length, 1)
   assert.deepEqual(metrics[0].route, {
-    provider: 'session-provider', model: 'session-model', reasoningEffort: 'off',
+    provider: 'live-provider', model: 'live-model', reasoningEffort: 'off',
   })
   assert.deepEqual(metrics[0].usage, {
     inputTokens: 9000, totalInputTokens: 11000, outputTokens: 120,
@@ -254,7 +254,7 @@ test('metrics failures never change a successful generation', async () => {
   assert.equal(result.ok, true)
 })
 
-test('generate honors a fixed route override', async () => {
+test('generate prefers the live model selection over a fixed route', async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -263,8 +263,8 @@ test('generate honors a fixed route override', async () => {
     sessionId: 'session-1', draft: '', trigger: { kind: 'manual' }, currentCycleSkipped: [], localOutcomes: [],
   })
   assert.equal(result.ok, true)
-  assert.equal(requests[0].provider, 'fixed')
-  assert.equal(requests[0].model, 'fixed-model')
+  assert.equal(requests[0].provider, 'live-provider')
+  assert.equal(requests[0].model, 'live-model')
 })
 
 test('Host settings register as live and preserve hidden product-owned limits', () => {
