@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-for-me",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Prompt design assistant for DeepSeek Harness: designs next development prompts and optimizes current drafts with project context.",
   "type": "commonjs",
   "main": "lib/index.cjs",
