@@ -67,13 +67,13 @@
 Release 包含预构建的 Host 与 Client 产物：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.8/dsh-prompt-for-me-0.6.8.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.9/dsh-prompt-for-me-0.6.9.tgz
 ```
 
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.8
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.9
 ```
 
 安装后重启 `dsh web`。从 Git 安装时，pnpm 可能要求允许包的 `prepare` 脚本；它只复制 Host 文件并包装 Client factory。
@@ -89,8 +89,10 @@ dsh plugin --profile web remove dsh-prompt-for-me
 
 打开 **设置 → 插件 → 可配置 → Prompt for Me / Prompt 嘴替**。
 
+- **生成提示词使用的模型**  
+  选择 **默认路由** 则跟随当前 Session 的模型；选择 **自定义模型** 则在 dsh 可用提供商中固定一个模型，所有 Session 统一使用。
 - **手动生成快捷键** 默认为 `Mod+Shift+Space`。
-- **高级设置 → 建议模型** 默认跟随当前 Session，也可以固定到 Harness 模型目录中的某个 provider/model。
+- **更多自定义** 提供项目上下文开关、扫描深度、最大项目文件数、最大项目上下文、最大输出 Tokens 和请求超时设置。
 
 上下文预算、偏好记忆、模型输出上限和超时均由产品统一管理，不要求用户调整内部参数。
 
