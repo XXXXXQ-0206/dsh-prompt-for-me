@@ -1,156 +1,106 @@
-# Prompt for Me
+# dsh-prompt-for-me
 
-[中文](README.zh.md)
+**A prompt design companion for DeepSeek Harness.**
 
-[![GitHub](https://img.shields.io/badge/GitHub-XXXXXQ--0206%2Fdsh--prompt--for--me-blue)](https://github.com/XXXXXQ-0206/dsh-prompt-for-me)
+`dsh-prompt-for-me` sits beside the Harness composer and helps you turn a rough idea into a prompt that a coding agent can execute. It observes the current project as background, understands the intent behind your draft, and either optimizes that draft or designs the next worthwhile development step. The result is streamed directly into the composer, so you can review, undo, redo, and send it.
 
-Prompt for Me (中文名：Prompt 嘴替) adds one compact button to the DeepSeek Harness composer. It has two modes:
+This is not an automatic ghost-text plugin. It never sends a message by itself.
 
-- If the composer contains non-space text, the button becomes **优化提示词** and asks the currently selected Harness model to optimize that prompt.
-- If the composer is empty but a project is open, the button becomes **设计提示词** and designs the next prompt that should move the implementation forward.
-- A brand-new blank session with no human context disables the button and asks you to type a task first; there is not enough evidence to guess a next prompt.
+## Why
 
-The result is streamed directly into the composer as a draft. Input is locked while the model is working, clicking the button again immediately cancels generation and restores the original draft, and `Ctrl+Z` / `Ctrl+Y` step through the generated history.
+Writing a good agent prompt is a design task, not a chat activity. The useful prompt usually needs to know:
 
-There is no separate automatic button and no ghost-text flow in this fork. The new button is an upgrade of the previous manual Trigger path and reuses its generation, history, preference-memory, current-cycle feedback, and model-route infrastructure.
+- what problem you are solving;
+- what the project already contains;
+- which file, command, or module is the right next target;
+- what behavior, output, edge cases, tests, or acceptance criteria are relevant;
+- which constraints must stay untouched.
 
-![Prompt for Me interaction flow](assets/interaction-flow.svg)
+`dsh-prompt-for-me` gathers that background and performs the design work in the current composer, without turning the project into a summary or an assistant reply.
 
-## What it does
+## Highlights
 
-- Adds a single compact icon button to the right of the context-meter icon, immediately left of the send button.
-- Chooses automatically between prompt design and optimization using the live current draft and project state.
-- Treats the project only as background: scans the session `cwd`, includes up to 100 project files, reads key manifests such as `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `tsconfig.json`, `README.md`, and observes recent git status. The final output is a designed prompt, not a project summary or assistant reply.
-- Uses the exact provider/model currently selected in the composer (the same selection used when you press Enter).
-- Streams model output into the draft and keeps the composer locked until the request completes.
-- Aborts the request and restores the original draft when the button is clicked again.
-- Records streamed draft snapshots so `Ctrl+Z` and `Ctrl+Y` can undo/redo the optimization.
-- Keeps skipped candidates in the current cycle so the model avoids repeating them.
-- Preserves bounded cross-session preference memory and current-session feedback.
-- Follows the original prompt honestly: it never appends a clarification question or asks the user to supply missing details; it makes the best project-supported design decision and returns a usable prompt.
-- Never invokes tools, bypasses Harness approvals, or submits a message automatically.
+- **Two modes in one button**  
+  A non-empty draft becomes **优化提示词**. An empty draft becomes **设计提示词** when a project is open.
 
-## Interaction reference
+- **Project-aware background**  
+  Uses the session `cwd`, a bounded file tree, key manifests, and recent git status/diff as context. The background is for understanding, never the final output.
+
+- **Prompt design, not prediction**  
+  When the draft is empty, it designs the next profitable engineering step. It does not imitate the user or produce casual conversational text.
+
+- **Honest optimization**  
+  It preserves the original prompt instead of expanding it into unrelated work. It never asks the user for missing details inside the optimized result.
+
+- **Uses your selected model**  
+  It calls the same provider/model selected in the composer, including fallbacks to the session request header and fixed composition configuration.
+
+- **Streamed, controlled editing**  
+  Output streams into the draft, input is locked during request, a second click cancels and restores the original draft, and `Ctrl+Z` / `Ctrl+Y` walk through the generated history.
+
+- **Privacy by default**  
+  Only bounded text is sent. Project paths, manifests, session history, and interaction memory are capped; credentials are redacted before the model call.
+
+## Usage
+
+1. Open a DeepSeek Harness web session in your project workspace.
+2. Click the icon between the context meter and the send button.
+3. If the composer has text, the button optimizes it. If it is empty, the button designs the next prompt.
+4. Review the streamed result, adjust it if needed, and send it like any other draft.
 
 | Action | Result |
 | --- | --- |
-| Type a task and click 优化提示词 | The current prompt is optimized using the selected model and streamed into the draft. |
-| Leave the draft empty in a new session | The button is disabled until a task is typed or human context exists. |
-| Leave the draft empty and open the project | The selected model designs the next high-value development prompt for the current project. |
-| Click the button while generating | The request is aborted and the original draft is restored so you can edit it. |
-| `Ctrl+Z` / `Ctrl+Y` | Step backward/forward through the generated stream history. |
-| Press Enter | Only the draft you see is submitted; the plugin never submits by itself. |
+| Type a task, click **优化提示词** | The current prompt is optimized with project context. |
+| Open a project, leave the draft empty, click **设计提示词** | The next high-value development prompt is designed. |
+| Click again during generation | The request is aborted; the original draft is restored. |
+| `Ctrl+Z` / `Ctrl+Y` | Step backward/forward through the generated prompt history. |
+| Press Enter | Only the final visible draft is sent. |
 
 ## Install
 
-The release tarball is the simplest option because it contains prebuilt Host and Client artifacts:
+Release tarballs contain the prebuilt host and client artifacts:
 
 ```sh
 dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.7/dsh-prompt-for-me-0.6.7.tgz
 ```
 
-Restart `dsh web` after installation.
-
-You may also install a pinned Git tag:
+You can also install a pinned Git tag:
 
 ```sh
 dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.7
 ```
 
-pnpm 10 may ask you to allow the package's `prepare` script for a Git install. Add `dsh-prompt-for-me: true` under `allowBuilds` in the Web profile's `pnpm-workspace.yaml`, then run the command again. The script only copies the checked-out Host files and wraps the checked-out Client factory; it performs no downloads.
+Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.
 
-Update or remove it with:
+Update or remove:
 
 ```sh
 dsh plugin --profile web update dsh-prompt-for-me
 dsh plugin --profile web remove dsh-prompt-for-me
 ```
 
-Current DeepSeek Harness builds provide the composer selection hooks used by this fork. The manual generation workflow is direct-fill and does not require the native ghost-text API.
+## Settings
 
-## Web UI settings
+Open **Settings → Plugins → Configurable → Prompt for Me**.
 
-Open **Settings → Plugins → Configurable**, then expand **Prompt for Me**. The card follows Harness settings structure, tokens, spacing, and staged Save/Discard behavior. Saved values live in the shared Host user-settings document and take effect immediately without a restart.
+- **Manual generation shortcut** defaults to `Mod+Shift+Space`.
+- **Advanced settings → Suggestion model** follows the current session by default, or can pin one provider/model from the current Harness model directory.
 
-- **Manual generation shortcut** defaults to `Mod+Shift+Space`. Select the current shortcut and press a new Command/Ctrl or Alt combination, or disable the shortcut.
-- **Advanced settings → Suggestion model** follows the current Session by default. It can instead pin one provider/model from the current Harness model directory.
+The product owns context budgets, memory, model output limits, and timeouts; users are not asked to tune these internals.
 
-The UI deliberately omits context-range controls, quick/personalized modes, a personalization reset, token limits, and timeouts. The plugin owns those product decisions instead of asking users to tune suggestion quality.
+## Architecture
 
-## Model and API key
+The package is one dsh bundle with a host half and a browser half:
 
-The plugin calls `ctx.llm` on the Harness Host. It reuses the provider/model currently selected in the composer, which is the same selection used when the user presses Enter. It falls back to the session request header and then to a fixed composition route. The provider therefore uses the API key already configured in DeepSeek Harness. The browser never receives or reads that key, and this plugin has no separate key.
-
-Most users can pin an auxiliary model from the Web UI advanced settings. Deployment maintainers may also set both `provider` and `model` as a composition base in `cordis.patch.yml` or an overriding profile patch; a saved Web UI choice takes precedence:
-
-```yaml
-- id: prompt-for-me
-  name: dsh-prompt-for-me
-  config:
-    provider: deepseek-official
-    model: deepseek-chat
+```text
+src/index.cjs              Host entry: session events, project context, model routing, NDJSON RPC
+src/core.cjs               Bounded prompt input, redaction, memory, and mode-aware system instructions
+src/client-factory.cjs     Browser half: composer button, stream handling, lock/interrupt/undo
+cordis.patch.yml           Bundle patch for the Web profile
+lib/                       Generated host/client artifacts
 ```
 
-## Data and privacy
-
-On each generation request, the Host may send these bounded text fields to the selected model provider:
-
-- the current draft;
-- a bounded project snapshot containing the current directory, source tree, key manifest excerpts, and recent git status/diff summary;
-- the last three direct-human/assistant turns from the current session;
-- current-session submitted suggestion edits, exact accepts, and rejected suggestions;
-- bounded raw examples from manual prompts and suggestion interactions in up to 20 earlier sessions;
-- up to ten suggestions skipped during the current cycle, so the model can avoid repeating or paraphrasing them.
-
-The current draft, project snapshot, and recent turns help understand the task, intent, and next step. Project grounding is background, not the answer: the design mode returns an actionable engineering prompt instead of a generic assistant response. Current-session feedback adjusts the immediate wording. Cross-session memory may influence only durable style, detail, and workflow preferences. Manual prompts and submitted suggestion edits carry more weight than exact accepts; rejected suggestions are weak negative evidence. Editing a suggestion and triggering again rejects the original suggestion but does not treat the unsubmitted edit as a positive preference.
-
-Harness records injected workspace instructions, runtime context, and skill catalogs in user-role events. The plugin excludes these non-human sources from conversation turns and preference memory. A brand-new session remains disabled only when there is neither a typed draft nor enough project evidence; once the workspace contains source files or manifests, prompt design becomes available.
-
-Common API-key, token, password, and Bearer-token patterns are replaced with `[REDACTED_SECRET]` before the model call. Attachments, tool arguments, files, credentials, and binary blocks are not collected. The plugin has no analytics endpoint and sends data only to the model route already selected in Harness.
-
-Interaction records are stored only in this browser's `localStorage` under `dsh.prompt-for-me.outcomes.v2`. Each record contains its session ID, final action, origin, and the relevant original/final text. A generated prompt only becomes feedback after the user actually submits it. Version 1 records migrate automatically and remain untouched.
-
-DeepSeek Harness `0.1.0-rc.6` does not expose downstream registration for custom durable session-event types. For that reason, the standalone plugin does not append its auxiliary model request or outcomes to the Harness session log; doing so would make persisted sessions unreadable to the stock runtime. This is the main difference from the experimental in-tree implementation and will be revisited when a public event-registration API exists.
-
-The generation RPC uses NDJSON. Raw prompt deltas are streamed into the draft as they arrive, and the final candidate is validated against the bounded output limit before the request finishes. Failures remain visible on the button's tooltip and can be retried by clicking again.
-
-The auxiliary request always uses reasoning effort `off`. The model receives one design/optimize-aware system instruction plus one JSON user message with `mode`, `originalPrompt`, `project`, `current`, `currentSessionFeedback`, `userPreferenceMemory`, and `currentCycleSkipped`. It receives no tool schemas or attachments.
-
-The Host retains the latest 50 privacy-safe performance records in memory and logs each record as `prompt-for-me metrics`. Records contain model route, text byte/item counts, history/input preparation time, first model chunk/reasoning/text times, suggestion arrival time, total model/request time, and provider token usage. They contain no prompt, candidate, or outcome text. Query the current process with:
-
-```sh
-curl -sS -X POST -H 'content-type: application/json' \
-  -d '{"method":"metrics"}' \
-  http://127.0.0.1:3080/dsh-prompt-for-me/rpc
-```
-
-## Configuration
-
-The Web UI exposes only the three everyday choices above. The table below documents `cordis.patch.yml` composition controls for deployment maintainers; ordinary users are not expected to tune the stable generation limits:
-
-| Field | Default | Meaning |
-| --- | ---: | --- |
-| `automatic` | `false` | Kept for backward compatibility; this fork never renders or starts an automatic ghost workflow. |
-| `maxCandidateBytes` | `4096` | UTF-8 limit per suggestion. |
-| `maxDraftBytes` | `32768` | UTF-8 limit for a draft or edited outcome. |
-| `maxCurrentCycleSkipped` | `10` | Skipped suggestions retained as hard negative context for the next Trigger. |
-| `maxCurrentCycleSkippedBytes` | `16384` | Shared JSON budget for suggestions skipped during the current cycle. |
-| `maxCurrentTurns` | `3` | Most recent current-session turns retained. |
-| `maxCurrentContextBytes` | `16384` | JSON budget for the retained turns. |
-| `maxCurrentFeedbackBytes` | `4096` | JSON budget for current-session suggestion feedback. |
-| `maxPreferenceMemoryBytes` | `8192` | JSON budget for cross-session preference memory. |
-| `maxHistorySessions` | `20` | Earlier sessions inspected. |
-| `maxManualPrompts` | `8` | Earlier manual prompts retained. |
-| `maxEditedSuggestions` | `6` | Edited suggestion pairs retained per feedback tier. |
-| `maxAcceptedExact` | `6` | Exact accepts retained per feedback tier. |
-| `maxRejectedSuggestions` | `4` | Weak rejection signals retained per feedback tier. |
-| `maxLocalOutcomes` | `50` | Browser-local interaction records retained. |
-| `maxLocalOutcomesBytes` | `131072` | Shared JSON budget for browser-local records and their RPC copy. |
-| `maxProjectContextBytes` | `16384` | UTF-8 budget for the grounded project tree and manifest excerpts. |
-| `maxProjectTreeFiles` | `100` | Maximum project files included in the grounding snapshot. |
-| `maxOutputTokens` | `2048` | Auxiliary model output budget. |
-| `timeoutMs` | `30000` | Auxiliary model-call timeout. |
-| `shortcut` | `Mod+Shift+Space` | Portable Trigger, or `disabled`. |
+The browser calls `/dsh-prompt-for-me/rpc` over NDJSON. The host collects project evidence, keeps every text field bounded, calls the currently selected `ctx.llm` route, and streams deltas plus a final candidate back to the composer.
 
 ## Development
 
@@ -160,7 +110,7 @@ Requires Node.js 22.19 or newer.
 npm run check
 ```
 
-The command rebuilds the static Host/Client artifacts, runs the Node test suite, and verifies the npm package contents.
+This rebuilds static artifacts, runs the test suite, and verifies the package contents.
 
 ## License
 
