@@ -372,7 +372,12 @@ test('disabling automatic suggestions cancels pending work and withdraws ghost t
 
 test('the plugin settings controller reads and replaces only its own three fields', async () => {
   browserStorage()
-  let settings = { automatic: true, shortcut: 'Mod+Shift+Space', route: null }
+  let settings = {
+    automatic: true, shortcut: 'Mod+Shift+Space', route: null,
+    projectContextEnabled: true, projectContextDepth: 3,
+    maxProjectTreeFiles: 100, maxProjectContextBytes: 16384,
+    maxOutputTokens: 2048, timeoutMs: 30000,
+  }
   const calls = []
   const plugin = createClientPlugin(React, {
     rpc: async (method, args) => {
@@ -394,6 +399,12 @@ test('the plugin settings controller reads and replaces only its own three field
     automatic: false,
     shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
+    projectContextEnabled: false,
+    projectContextDepth: 2,
+    maxProjectTreeFiles: 80,
+    maxProjectContextBytes: 8192,
+    maxOutputTokens: 1024,
+    timeoutMs: 15000,
   }
   await controller.replace(next)
   assert.deepEqual(controller.getSnapshot().value, next)
