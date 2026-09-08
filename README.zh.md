@@ -67,13 +67,13 @@
 Release 包含预构建的 Host 与 Client 产物：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.9/dsh-prompt-for-me-0.6.9.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.0/dsh-prompt-for-me-0.7.0.tgz
 ```
 
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.9
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.0
 ```
 
 安装后重启 `dsh web`。从 Git 安装时，pnpm 可能要求允许包的 `prepare` 脚本；它只复制 Host 文件并包装 Client factory。
@@ -87,7 +87,7 @@ dsh plugin --profile web remove dsh-prompt-for-me
 
 ## 设置
 
-打开 **设置 → 插件 → 可配置 → Prompt for Me / Prompt 嘴替**。
+打开 **设置 → Prompt for Me / Prompt 嘴替**。该入口直接出现在设置左侧栏，与「会话回收站」并列。
 
 - **生成提示词使用的模型**  
   选择 **默认路由** 则跟随当前 Session 的模型；选择 **自定义模型** 则在 dsh 可用提供商中固定一个模型，所有 Session 统一使用。
