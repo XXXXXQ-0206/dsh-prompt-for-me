@@ -27,6 +27,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 - Records streamed draft snapshots so `Ctrl+Z` and `Ctrl+Y` can undo/redo the optimization.
 - Keeps skipped candidates in the current cycle so the model avoids repeating them.
 - Preserves bounded cross-session preference memory and current-session feedback.
+- Follows the original prompt honestly: it never appends a clarification question or asks the user to supply missing details; it makes the best project-supported design decision and returns a usable prompt.
 - Never invokes tools, bypasses Harness approvals, or submits a message automatically.
 
 ## Interaction reference
@@ -45,7 +46,7 @@ There is no separate automatic button and no ghost-text flow in this fork. The n
 The release tarball is the simplest option because it contains prebuilt Host and Client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.6/dsh-prompt-for-me-0.6.6.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.7/dsh-prompt-for-me-0.6.7.tgz
 ```
 
 Restart `dsh web` after installation.
@@ -53,7 +54,7 @@ Restart `dsh web` after installation.
 You may also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.6
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.7
 ```
 
 pnpm 10 may ask you to allow the package's `prepare` script for a Git install. Add `dsh-prompt-for-me: true` under `allowBuilds` in the Web profile's `pnpm-workspace.yaml`, then run the command again. The script only copies the checked-out Host files and wraps the checked-out Client factory; it performs no downloads.
