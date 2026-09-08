@@ -67,13 +67,13 @@ Writing a good agent prompt is a design task, not a chat activity. The useful pr
 Release tarballs contain the prebuilt host and client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.8/dsh-prompt-for-me-0.6.8.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.9/dsh-prompt-for-me-0.6.9.tgz
 ```
 
 You can also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.8
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.9
 ```
 
 Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.
@@ -89,8 +89,10 @@ dsh plugin --profile web remove dsh-prompt-for-me
 
 Open **Settings → Plugins → Configurable → Prompt for Me**.
 
+- **Model route**  
+  Choose **Default route** to follow the model selected in the current Session, or **Custom model** to pin a provider/model from dsh's available catalog for all Sessions.
 - **Manual generation shortcut** defaults to `Mod+Shift+Space`.
-- **Advanced settings → Suggestion model** follows the current session by default, or can pin one provider/model from the current Harness model directory.
+- **More customization** exposes project-context scanning, scan depth, max project files, max project context, max output tokens, and request timeout.
 
 The product owns context budgets, memory, model output limits, and timeouts; users are not asked to tune these internals.
 
