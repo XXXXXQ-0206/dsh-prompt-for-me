@@ -304,7 +304,7 @@ test('metrics failures never change a successful generation', async () => {
   assert.equal(result.ok, true)
 })
 
-test('generate prefers the live model selection over a fixed route', async () => {
+test('a plugin-fixed model route overrides the live Session selection', async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -313,8 +313,8 @@ test('generate prefers the live model selection over a fixed route', async () =>
     sessionId: 'session-1', draft: '', trigger: { kind: 'manual' }, currentCycleSkipped: [], localOutcomes: [],
   })
   assert.equal(result.ok, true)
-  assert.equal(requests[0].provider, 'live-provider')
-  assert.equal(requests[0].model, 'live-model')
+  assert.equal(requests[0].provider, 'fixed')
+  assert.equal(requests[0].model, 'fixed-model')
 })
 
 test('Host settings register as live and preserve hidden product-owned limits', () => {
@@ -346,6 +346,12 @@ test('Host settings register as live and preserve hidden product-owned limits', 
     automatic: true,
     shortcut: 'Mod+Shift+Space',
     route: { provider: 'profile', model: 'profile-model' },
+    projectContextEnabled: true,
+    projectContextDepth: 3,
+    maxProjectTreeFiles: 100,
+    maxProjectContextBytes: 16384,
+    maxOutputTokens: 2048,
+    timeoutMs: 4321,
   })
   assert.equal(applied[0].provider, undefined)
   assert.equal(applied[0].timeoutMs, 4321)
@@ -367,7 +373,12 @@ test('Host settings register as live and preserve hidden product-owned limits', 
 
 test('the plugin RPC reads and atomically replaces its Host settings section', async () => {
   let route
-  let current = { automatic: true, shortcut: 'Mod+Shift+Space', route: null }
+  let current = {
+    automatic: true, shortcut: 'Mod+Shift+Space', route: null,
+    projectContextEnabled: true, projectContextDepth: 3,
+    maxProjectTreeFiles: 100, maxProjectContextBytes: 16384,
+    maxOutputTokens: 2048, timeoutMs: 30000,
+  }
   const base = resolveConfig({ timeoutMs: 7654 })
   const binding = {
     settings: { writable: true },
@@ -415,6 +426,12 @@ test('the plugin RPC reads and atomically replaces its Host settings section', a
     automatic: false,
     shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
+    projectContextEnabled: false,
+    projectContextDepth: 2,
+    maxProjectTreeFiles: 80,
+    maxProjectContextBytes: 8192,
+    maxOutputTokens: 1024,
+    timeoutMs: 15000,
   }
   assert.deepEqual(await call('update-settings', { settings: next }), {
     ok: true,
