@@ -5,6 +5,17 @@ module.exports = function createClientPlugin(React, options) {
   const STORAGE_KEY = 'dsh.prompt-for-me.outcomes.v2'
   const LEGACY_STORAGE_KEY = 'dsh.prompt-for-me.outcomes.v1'
   const TRIGGER_COALESCE_MS = 250
+  const DEFAULT_USER_SETTINGS = Object.freeze({
+    automatic: Boolean(options && options.automatic === true),
+    shortcut: 'Mod+Shift+Space',
+    route: null,
+    projectContextEnabled: true,
+    projectContextDepth: 3,
+    maxProjectTreeFiles: 100,
+    maxProjectContextBytes: 16384,
+    maxOutputTokens: 2048,
+    timeoutMs: 30000,
+  })
   const stores = new Map()
   const config = {
     shortcut: 'Mod+Shift+Space',
@@ -12,6 +23,12 @@ module.exports = function createClientPlugin(React, options) {
     maxCurrentCycleSkippedBytes: 16384,
     maxLocalOutcomes: 50,
     maxLocalOutcomesBytes: 131072,
+    projectContextEnabled: true,
+    projectContextDepth: 3,
+    maxProjectTreeFiles: 100,
+    maxProjectContextBytes: 16384,
+    maxOutputTokens: 2048,
+    timeoutMs: 30000,
     automatic: Boolean(options && options.automatic === true),
   }
   let automaticPolicyReady = Boolean(options && typeof options.automatic === 'boolean')
@@ -673,6 +690,9 @@ module.exports = function createClientPlugin(React, options) {
     const automaticWasEnabled = config.automatic
     if (typeof result.shortcut === 'string') config.shortcut = result.shortcut
     if (typeof result.automatic === 'boolean') config.automatic = result.automatic
+    if (typeof result.projectContextEnabled === 'boolean') {
+      config.projectContextEnabled = result.projectContextEnabled
+    }
     if (Number.isSafeInteger(result.maxCurrentCycleSkipped)
       && result.maxCurrentCycleSkipped >= 1) {
       config.maxCurrentCycleSkipped = result.maxCurrentCycleSkipped
@@ -974,6 +994,7 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-settings-body{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}',
     '.dsh-pfm-settings-row{display:flex;align-items:center;gap:18px;padding:14px 0}',
     '.dsh-pfm-settings-row+.dsh-pfm-settings-row,.dsh-pfm-settings-advanced{border-top:1px solid var(--dsw-alias-border-l2)}',
+    '.dsh-pfm-settings-model-control{display:flex;flex-direction:column;gap:8px;min-width:280px}',
     '.dsh-pfm-settings-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}',
     '.dsh-pfm-settings-label{font-size:13px;font-weight:500;line-height:1.5;color:var(--dsw-alias-label-primary)}',
     '.dsh-pfm-settings-hint,.dsh-pfm-settings-status{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}',
@@ -999,6 +1020,9 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-settings-choice small{font-size:11px;line-height:1.45;color:var(--dsw-alias-label-tertiary)}',
     '.dsh-pfm-settings-select{width:100%;height:36px;margin:0 0 12px;padding:0 34px 0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}',
     '.dsh-pfm-settings-select:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+    '.dsh-pfm-settings-input{height:34px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}',
+    '.dsh-pfm-settings-input:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+    '.dsh-pfm-settings-number{width:116px}',
     '.dsh-pfm-settings-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 0 4px;border-top:1px solid var(--dsw-alias-border-l2)}',
     '.dsh-pfm-settings-footer .dsh-pfm-settings-status{flex:1}',
     '.dsh-pfm-settings-save{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border-color:transparent}',
@@ -1050,7 +1074,11 @@ module.exports = function createClientPlugin(React, options) {
     const store = storeFor(sessionId)
     const zh = isChinese()
     const locked = store.pending && store.generationKind === 'manual'
-    const contextReady = hasGenerationContext(session, draft, workspacePath)
+    const contextReady = hasGenerationContext(
+      session,
+      draft,
+      config.projectContextEnabled ? workspacePath : '',
+    )
     const disabled = !locked && !contextReady
     React.useEffect(() => {
       const listener = () => rerender()
@@ -1185,17 +1213,41 @@ module.exports = function createClientPlugin(React, options) {
       ? { provider: source.route.provider, model: source.route.model }
       : null
     return {
-      automatic: typeof source.automatic === 'boolean' ? source.automatic : config.automatic,
+      automatic: typeof source.automatic === 'boolean' ? source.automatic : DEFAULT_USER_SETTINGS.automatic,
       shortcut: typeof source.shortcut === 'string' && source.shortcut !== ''
         ? source.shortcut
-        : config.shortcut,
+        : DEFAULT_USER_SETTINGS.shortcut,
       route,
+      projectContextEnabled: typeof source.projectContextEnabled === 'boolean'
+        ? source.projectContextEnabled
+        : DEFAULT_USER_SETTINGS.projectContextEnabled,
+      projectContextDepth: Number.isSafeInteger(source.projectContextDepth)
+        ? source.projectContextDepth
+        : DEFAULT_USER_SETTINGS.projectContextDepth,
+      maxProjectTreeFiles: Number.isSafeInteger(source.maxProjectTreeFiles)
+        ? source.maxProjectTreeFiles
+        : DEFAULT_USER_SETTINGS.maxProjectTreeFiles,
+      maxProjectContextBytes: Number.isSafeInteger(source.maxProjectContextBytes)
+        ? source.maxProjectContextBytes
+        : DEFAULT_USER_SETTINGS.maxProjectContextBytes,
+      maxOutputTokens: Number.isSafeInteger(source.maxOutputTokens)
+        ? source.maxOutputTokens
+        : DEFAULT_USER_SETTINGS.maxOutputTokens,
+      timeoutMs: Number.isSafeInteger(source.timeoutMs)
+        ? source.timeoutMs
+        : DEFAULT_USER_SETTINGS.timeoutMs,
     }
   }
 
   function sameUserSettings(left, right) {
     return left.automatic === right.automatic
       && left.shortcut === right.shortcut
+      && left.projectContextEnabled === right.projectContextEnabled
+      && left.projectContextDepth === right.projectContextDepth
+      && left.maxProjectTreeFiles === right.maxProjectTreeFiles
+      && left.maxProjectContextBytes === right.maxProjectContextBytes
+      && left.maxOutputTokens === right.maxOutputTokens
+      && left.timeoutMs === right.timeoutMs
       && ((left.route === null && right.route === null)
         || (left.route !== null && right.route !== null
           && left.route.provider === right.route.provider
@@ -1229,18 +1281,21 @@ module.exports = function createClientPlugin(React, options) {
       title: 'Prompt for Me / Prompt 嘴替',
       description: '设计下一步开发提示词，或优化输入栏中的当前草稿。',
       expand: '展开设置', collapse: '收起设置', unsaved: '未保存',
-      automatic: 'Agent 回复后自动建议',
-      automaticHint: '回复完成且输入框为空时，以 Ghost Text 展示一条建议。',
       shortcut: '手动生成快捷键',
       shortcutHint: '在输入框中生成并直接填入文本；它不是接受 Ghost Text 的 Tab 键。',
       record: '按下组合键', recording: '请按组合键…', disabled: '已关闭',
       disableShortcut: '关闭', restoreShortcut: '恢复默认',
       shortcutError: '请使用 Command/Ctrl 或 Alt 加一个普通按键。',
-      advanced: '高级设置', hideAdvanced: '收起高级设置', model: '建议模型',
-      follow: '跟随当前 Session', followHint: '使用当前会话已经选择的模型。',
-      fixed: '固定模型', fixedHint: '所有会话都使用指定模型生成建议。',
-      noModels: '请先打开一个普通 Session，模型列表将在这里显示。',
-      loadingModels: '正在读取当前 Session 的模型…', modelError: '模型列表读取失败，可稍后重试。',
+      advanced: '更多自定义', hideAdvanced: '收起更多自定义',
+      modelTitle: '生成提示词使用的模型',
+      defaultRoute: '默认路由', defaultRouteHint: '跟随输入框当前 Session 选择，Enter 发送用哪个就用哪个。',
+      customModel: '自定义模型', customModelHint: '在 dsh 已提供的提供商中固定一个模型，所有 Session 都使用。',
+      model: '选择模型',
+      noModels: '当前没有可用的模型目录。',
+      loadingModels: '正在读取 dsh 可用提供商/模型…', modelError: '模型列表读取失败，可稍后重试。',
+      projectContext: '读取项目上下文', projectContextHint: '扫描工作区文件树、manifest 和 git 状态，作为理解背景。',
+      projectDepth: '项目扫描深度', maxFiles: '最大项目文件数', maxContext: '最大项目上下文',
+      maxOutput: '最大输出 Tokens', timeout: '请求超时', seconds: '秒', tokens: 'Tokens', files: '个文件', kb: 'KB',
       configured: '当前配置', readOnly: '当前设置存储为只读，不能在这里修改。',
       saveFailed: '保存没有生效，请检查 Host 设置服务。',
       discard: '放弃', save: '保存', saving: '保存中…',
@@ -1248,18 +1303,21 @@ module.exports = function createClientPlugin(React, options) {
       title: 'Prompt for Me',
       description: 'Design the next development prompt, or optimize the current composer draft.',
       expand: 'Expand settings', collapse: 'Collapse settings', unsaved: 'Unsaved',
-      automatic: 'Suggest after the Agent replies',
-      automaticHint: 'When a reply finishes and the composer is empty, offer one suggestion as ghost text.',
       shortcut: 'Manual generation shortcut',
       shortcutHint: 'Generate and fill the composer. This is separate from Tab, which accepts ghost text.',
       record: 'Press shortcut', recording: 'Press keys…', disabled: 'Disabled',
       disableShortcut: 'Disable', restoreShortcut: 'Restore default',
       shortcutError: 'Use Command/Ctrl or Alt with a regular key.',
-      advanced: 'Advanced settings', hideAdvanced: 'Hide advanced settings', model: 'Suggestion model',
-      follow: 'Follow current Session', followHint: 'Use the model already selected for the current session.',
-      fixed: 'Fixed model', fixedHint: 'Use one specified model for suggestions in every session.',
-      noModels: 'Open a regular Session first; its model directory will appear here.',
-      loadingModels: 'Loading models from the current Session…', modelError: 'Could not load models. Try again later.',
+      advanced: 'More customization', hideAdvanced: 'Hide more customization',
+      modelTitle: 'Model used for generated prompts',
+      defaultRoute: 'Default route', defaultRouteHint: 'Follow the model selected in the current Session, exactly what Enter uses.',
+      customModel: 'Custom model', customModelHint: 'Pin one model from the providers available in dsh; every Session uses it.',
+      model: 'Select model',
+      noModels: 'No model directory is available right now.',
+      loadingModels: 'Loading dsh providers/models…', modelError: 'Could not load models. Try again later.',
+      projectContext: 'Read project context', projectContextHint: 'Scan the workspace file tree, manifests, and git state as background.',
+      projectDepth: 'Project scan depth', maxFiles: 'Max project files', maxContext: 'Max project context',
+      maxOutput: 'Max output tokens', timeout: 'Request timeout', seconds: 'sec', tokens: 'Tokens', files: 'files', kb: 'KB',
       configured: 'Configured', readOnly: 'The current settings store is read-only.',
       saveFailed: 'The settings were not saved. Check the Host settings service.',
       discard: 'Discard', save: 'Save', saving: 'Saving…',
@@ -1291,7 +1349,7 @@ module.exports = function createClientPlugin(React, options) {
     }, [snapshot.revision])
 
     React.useEffect(() => {
-      if (!advanced || sessionId === undefined || !props.pfmModelDirectories) return undefined
+      if (sessionId === undefined || !props.pfmModelDirectories) return undefined
       let directory
       try {
         directory = props.pfmModelDirectories.directoryFor(sessionId)
@@ -1304,7 +1362,7 @@ module.exports = function createClientPlugin(React, options) {
       const dispose = directory.store.subscribe(publish)
       void directory.load().catch(publish)
       return dispose
-    }, [advanced, sessionId, props.pfmModelDirectories])
+    }, [sessionId, props.pfmModelDirectories])
 
     if (snapshot.status !== 'ready') return null
     const h = React.createElement
@@ -1359,6 +1417,11 @@ module.exports = function createClientPlugin(React, options) {
       setShortcutError(false)
     }
 
+    const integerInput = (event, fallback = 0) => {
+      const next = Number(event.target.value)
+      return Number.isSafeInteger(next) ? next : fallback
+    }
+
     const modelStatus = sessionId === undefined
       ? copy.noModels
       : models.status === 'loading'
@@ -1387,6 +1450,46 @@ module.exports = function createClientPlugin(React, options) {
     }, '⌄')),
     open ? h('div', { className: 'dsh-pfm-settings-body' },
       !writable ? h('p', { className: 'dsh-pfm-settings-status', role: 'status' }, copy.readOnly) : null,
+      h('div', { className: 'dsh-pfm-settings-row' },
+        h('div', { className: 'dsh-pfm-settings-copy' },
+          h('span', { className: 'dsh-pfm-settings-label' }, copy.modelTitle),
+          h('span', { className: 'dsh-pfm-settings-hint' }, draft.route === null
+            ? copy.defaultRouteHint
+            : copy.customModelHint)),
+        h('div', { className: 'dsh-pfm-settings-model-control' },
+          h('div', { className: 'dsh-pfm-settings-choices' },
+            h('label', {
+              className: 'dsh-pfm-settings-choice', 'data-selected': String(draft.route === null),
+            }, h('input', {
+              type: 'radio', name: 'dsh-pfm-model-route', checked: draft.route === null,
+              disabled: !writable, onChange: () => setDraft({ ...draft, route: null }),
+            }), h('strong', null, copy.defaultRoute), h('small', null, copy.defaultRouteHint)),
+            h('label', {
+              className: 'dsh-pfm-settings-choice', 'data-selected': String(draft.route !== null),
+            }, h('input', {
+              type: 'radio', name: 'dsh-pfm-model-route', checked: draft.route !== null,
+              disabled: !writable || fixedFallback === null,
+              onChange: () => fixedFallback && setDraft({
+                ...draft,
+                route: { provider: fixedFallback.provider, model: fixedFallback.model },
+              }),
+            }), h('strong', null, copy.customModel), h('small', null, copy.customModelHint))),
+          draft.route !== null ? h('select', {
+            className: 'dsh-pfm-settings-select', value: routeKey(draft.route), disabled: !writable,
+            'aria-label': copy.model,
+            onChange: (event) => {
+              const selected = options.find((option) => routeKey(option) === event.target.value)
+              if (selected) setDraft({
+                ...draft, route: { provider: selected.provider, model: selected.model },
+              })
+            },
+          }, options.map((option) => h('option', {
+            key: routeKey(option), value: routeKey(option),
+          }, `${option.providerLabel} · ${option.label}`))) : null,
+          modelStatus ? h('p', {
+            className: 'dsh-pfm-settings-status',
+            'data-error': String(models.status === 'error'), role: 'status',
+          }, modelStatus) : null)),
       h('div', { className: 'dsh-pfm-settings-row' },
         h('span', { className: 'dsh-pfm-settings-copy' },
           h('span', { className: 'dsh-pfm-settings-label' }, copy.shortcut),
@@ -1417,41 +1520,87 @@ module.exports = function createClientPlugin(React, options) {
           'aria-expanded': advanced, onClick: () => setAdvanced(!advanced),
         }, advanced ? `⌃ ${copy.hideAdvanced}` : `⌄ ${copy.advanced}`),
         advanced ? h(React.Fragment, null,
-          h('span', { className: 'dsh-pfm-settings-label' }, copy.model),
-          h('div', { className: 'dsh-pfm-settings-choices' },
-            h('label', {
-              className: 'dsh-pfm-settings-choice', 'data-selected': String(draft.route === null),
-            }, h('input', {
-              type: 'radio', name: 'dsh-pfm-model-route', checked: draft.route === null,
-              disabled: !writable, onChange: () => setDraft({ ...draft, route: null }),
-            }), h('strong', null, copy.follow), h('small', null, copy.followHint)),
-            h('label', {
-              className: 'dsh-pfm-settings-choice',
-              'data-selected': String(draft.route !== null),
-            }, h('input', {
-              type: 'radio', name: 'dsh-pfm-model-route', checked: draft.route !== null,
-              disabled: !writable || fixedFallback === null,
-              onChange: () => fixedFallback && setDraft({
+          h('div', { className: 'dsh-pfm-settings-row' },
+            h('div', { className: 'dsh-pfm-settings-copy' },
+              h('span', { className: 'dsh-pfm-settings-label' }, copy.projectContext),
+              h('span', { className: 'dsh-pfm-settings-hint' }, copy.projectContextHint)),
+            h('label', { className: 'dsh-pfm-switch' },
+              h('input', {
+                type: 'checkbox', checked: draft.projectContextEnabled,
+                disabled: !writable,
+                onChange: (event) => setDraft({
+                  ...draft,
+                  projectContextEnabled: event.target.checked,
+                }),
+              }), h('span'))),
+          h('div', { className: 'dsh-pfm-settings-row' },
+            h('span', { className: 'dsh-pfm-settings-copy' },
+              h('span', { className: 'dsh-pfm-settings-label' }, copy.projectDepth),
+              h('span', { className: 'dsh-pfm-settings-hint' }, copy.projectContextHint)),
+            h('select', {
+              className: 'dsh-pfm-settings-select', value: String(draft.projectContextDepth),
+              disabled: !writable, 'aria-label': copy.projectDepth,
+              onChange: (event) => setDraft({
                 ...draft,
-                route: { provider: fixedFallback.provider, model: fixedFallback.model },
+                projectContextDepth: Number(event.target.value),
               }),
-            }), h('strong', null, copy.fixed), h('small', null, copy.fixedHint))),
-          draft.route !== null && options.length > 0 ? h('select', {
-            className: 'dsh-pfm-settings-select', value: routeKey(draft.route), disabled: !writable,
-            'aria-label': copy.model,
-            onChange: (event) => {
-              const selected = options.find((option) => routeKey(option) === event.target.value)
-              if (selected) setDraft({
-                ...draft, route: { provider: selected.provider, model: selected.model },
-              })
-            },
-          }, options.map((option) => h('option', {
-            key: routeKey(option), value: routeKey(option),
-          }, `${option.providerLabel} · ${option.label}`))) : null,
-          modelStatus ? h('p', {
-            className: 'dsh-pfm-settings-status',
-            'data-error': String(models.status === 'error'), role: 'status',
-          }, modelStatus) : null) : null),
+            }, [0, 1, 2, 3, 4, 5].map((depth) => h('option', {
+              key: depth, value: String(depth),
+            }, `${depth}`)))),
+          h('div', { className: 'dsh-pfm-settings-row' },
+            h('span', { className: 'dsh-pfm-settings-copy' },
+              h('span', { className: 'dsh-pfm-settings-label' }, copy.maxFiles),
+              h('span', { className: 'dsh-pfm-settings-hint' }, copy.files)),
+            h('input', {
+              type: 'number', name: 'maxProjectTreeFiles', min: 1, max: 500,
+              className: 'dsh-pfm-settings-input dsh-pfm-settings-number',
+              value: String(draft.maxProjectTreeFiles), disabled: !writable,
+              onChange: (event) => setDraft({
+                ...draft,
+                maxProjectTreeFiles: integerInput(event, DEFAULT_USER_SETTINGS.maxProjectTreeFiles),
+              }),
+            })),
+          h('div', { className: 'dsh-pfm-settings-row' },
+            h('span', { className: 'dsh-pfm-settings-copy' },
+              h('span', { className: 'dsh-pfm-settings-label' }, copy.maxContext),
+              h('span', { className: 'dsh-pfm-settings-hint' }, copy.kb)),
+            h('input', {
+              type: 'number', name: 'maxProjectContextBytes', min: 1, max: 128,
+              className: 'dsh-pfm-settings-input dsh-pfm-settings-number',
+              value: String(Math.round(draft.maxProjectContextBytes / 1024)),
+              disabled: !writable,
+              onChange: (event) => setDraft({
+                ...draft,
+                maxProjectContextBytes: integerInput(event, DEFAULT_USER_SETTINGS.maxProjectContextBytes) * 1024,
+              }),
+            })),
+          h('div', { className: 'dsh-pfm-settings-row' },
+            h('span', { className: 'dsh-pfm-settings-copy' },
+              h('span', { className: 'dsh-pfm-settings-label' }, copy.maxOutput),
+              h('span', { className: 'dsh-pfm-settings-hint' }, copy.tokens)),
+            h('input', {
+              type: 'number', name: 'maxOutputTokens', min: 1, max: 16384,
+              className: 'dsh-pfm-settings-input dsh-pfm-settings-number',
+              value: String(draft.maxOutputTokens), disabled: !writable,
+              onChange: (event) => setDraft({
+                ...draft,
+                maxOutputTokens: integerInput(event, DEFAULT_USER_SETTINGS.maxOutputTokens),
+              }),
+            })),
+          h('div', { className: 'dsh-pfm-settings-row' },
+            h('span', { className: 'dsh-pfm-settings-copy' },
+              h('span', { className: 'dsh-pfm-settings-label' }, copy.timeout),
+              h('span', { className: 'dsh-pfm-settings-hint' }, copy.seconds)),
+            h('input', {
+              type: 'number', name: 'timeoutMs', min: 1, max: 300,
+              className: 'dsh-pfm-settings-input dsh-pfm-settings-number',
+              value: String(Math.round(draft.timeoutMs / 1000)),
+              disabled: !writable,
+              onChange: (event) => setDraft({
+                ...draft,
+                timeoutMs: integerInput(event, DEFAULT_USER_SETTINGS.timeoutMs) * 1000,
+              }),
+            }))) : null),
       h('div', { className: 'dsh-pfm-settings-footer' },
         failed ? h('p', {
           className: 'dsh-pfm-settings-status', 'data-error': 'true', role: 'status',
@@ -1486,7 +1635,12 @@ module.exports = function createClientPlugin(React, options) {
         const snapshot = settingsScope.getSnapshot()
         if (snapshot.status !== 'ready') return
         const value = normalizeUserSettings(snapshot.value)
-        applyConfiguration({ ok: true, automatic: value.automatic, shortcut: value.shortcut })
+        applyConfiguration({
+          ok: true,
+          automatic: value.automatic,
+          shortcut: value.shortcut,
+          projectContextEnabled: value.projectContextEnabled,
+        })
       }
       applySettingsSnapshot()
       ctx.effect(
