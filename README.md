@@ -61,13 +61,13 @@ Writing a good agent prompt is a design task, not a chat activity. The useful pr
 Release tarballs contain the prebuilt host and client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.7/dsh-prompt-for-me-0.6.7.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.8/dsh-prompt-for-me-0.6.8.tgz
 ```
 
 You can also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.7
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.8
 ```
 
 Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.
