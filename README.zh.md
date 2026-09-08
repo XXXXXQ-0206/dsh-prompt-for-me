@@ -1,5 +1,11 @@
 # dsh-prompt-for-me
 
+<p align="center">
+  <a href="README.md"><kbd>English</kbd></a>
+  &nbsp;|&nbsp;
+  <a href="README.zh.md"><kbd>中文</kbd></a>
+</p>
+
 **为 DeepSeek Harness 设计的 Prompt 设计伙伴。**
 
 `dsh-prompt-for-me` 位于 Harness 输入栏旁边，帮你把模糊的想法变成开发 Agent 可以直接执行的 Prompt。它会读取当前项目作为背景，理解草稿背后的真实意图，然后优化现有草稿，或在草稿为空时设计下一步最有价值的开发 Prompt。结果会流式写入输入框，你可以继续审阅、撤销、重做，再像普通草稿一样发送。
