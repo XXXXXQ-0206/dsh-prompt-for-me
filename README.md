@@ -67,13 +67,13 @@ Writing a good agent prompt is a design task, not a chat activity. The useful pr
 Release tarballs contain the prebuilt host and client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.9/dsh-prompt-for-me-0.6.9.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.0/dsh-prompt-for-me-0.7.0.tgz
 ```
 
 You can also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.9
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.0
 ```
 
 Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.
@@ -87,7 +87,7 @@ dsh plugin --profile web remove dsh-prompt-for-me
 
 ## Settings
 
-Open **Settings → Plugins → Configurable → Prompt for Me**.
+Open **Settings → Prompt for Me / Prompt 嘴替**. The entry appears directly in the settings sidebar, beside **Session Recycle Bin**.
 
 - **Model route**  
   Choose **Default route** to follow the model selected in the current Session, or **Custom model** to pin a provider/model from dsh's available catalog for all Sessions.
