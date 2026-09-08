@@ -47,6 +47,12 @@ function getUserSettingsSchema() {
           model: z.string().required(),
         }),
       ]).default(null),
+      projectContextEnabled: z.boolean().default(true),
+      projectContextDepth: z.number().default(3),
+      maxProjectTreeFiles: z.number().default(100),
+      maxProjectContextBytes: z.number().default(16384),
+      maxOutputTokens: z.number().default(2048),
+      timeoutMs: z.number().default(30000),
     })
   }
   return _UserSettingsSchema
@@ -163,11 +169,11 @@ function sessionCwd(session) {
   return undefined
 }
 
-async function collectProjectTree(cwd, config) {
+async function collectProjectTree(cwd, config, maxDepth = 3) {
   const files = []
   async function walk(directory, relative, depth = 0) {
     if (files.length >= config.maxProjectTreeFiles) return
-    if (depth > 3) return
+    if (depth > maxDepth) return
     let entries
     try {
       entries = await readdir(directory, { withFileTypes: true })
@@ -233,9 +239,10 @@ async function collectProjectGit(cwd) {
 }
 
 async function collectProjectContext(ctx, session, config) {
+  if (config.projectContextEnabled !== true) return null
   const cwd = sessionCwd(session)
   if (!cwd) return null
-  const tree = await collectProjectTree(cwd, config)
+  const tree = await collectProjectTree(cwd, config, config.projectContextDepth)
   const manifests = await collectProjectManifests(cwd)
   if (tree.length === 0 && Object.keys(manifests).length === 0) return null
   const git = await collectProjectGit(cwd)
@@ -268,8 +275,12 @@ function automaticTurnIsCurrent(session, trigger) {
 }
 
 function resolveRoute(ctx, session, config) {
-  // 优先复用“输入框当前选中的模型/供应商”（enter 发送时用的那个），
-  // 而不是插件里固定的 route；固定 route 仅作为最后兜底。
+  // 全局设置里的自定义模型优先：它代表用户为插件显式选择的 provider/model。
+  // 若用户选择了「默认路由」，config 没有 provider/model，再回退到输入框当前选择。
+  if (config.provider !== undefined && config.model !== undefined) {
+    return { provider: config.provider, model: config.model }
+  }
+  // 默认路由：跟随输入框当前选择 / Session request header。
   try {
     const defaults = service(ctx, 'agentDefaultModel')
     if (defaults && typeof defaults.currentSelection === 'function') {
@@ -293,9 +304,6 @@ function resolveRoute(ctx, session, config) {
   if (selected && typeof selected.provider === 'string' && selected.provider !== ''
     && typeof selected.model === 'string' && selected.model !== '') {
     return { provider: selected.provider, model: selected.model }
-  }
-  if (config.provider !== undefined && config.model !== undefined) {
-    return { provider: config.provider, model: config.model }
   }
   return undefined
 }
@@ -664,6 +672,12 @@ function registerRoute(ctx, getConfig, getSettingsBinding) {
           maxCurrentCycleSkippedBytes: config.maxCurrentCycleSkippedBytes,
           maxLocalOutcomes: config.maxLocalOutcomes,
           maxLocalOutcomesBytes: config.maxLocalOutcomesBytes,
+          projectContextEnabled: config.projectContextEnabled,
+          projectContextDepth: config.projectContextDepth,
+          maxProjectTreeFiles: config.maxProjectTreeFiles,
+          maxProjectContextBytes: config.maxProjectContextBytes,
+          maxOutputTokens: config.maxOutputTokens,
+          timeoutMs: config.timeoutMs,
         })
         return
       }
