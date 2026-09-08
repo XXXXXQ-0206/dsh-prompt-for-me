@@ -981,6 +981,11 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-preview-actions{display:flex;gap:6px}',
     '.dsh-pfm-preview-action{border:0;border-radius:7px;padding:5px 9px;background:color-mix(in srgb,currentColor 10%,transparent);color:inherit;cursor:pointer;font:inherit;font-size:12px}',
     '.dsh-pfm-settings-card{list-style:none;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-3);transition:border-color .16s,background .16s}',
+    '.dsh-pfm-settings-page{max-width:720px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,inherit)}',
+    '.dsh-pfm-settings-panel-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:16px}',
+    '.dsh-pfm-settings-panel-header .dsh-pfm-settings-name{margin:0;font-size:18px;font-weight:600;line-height:1.4}',
+    '.dsh-pfm-settings-panel-header .dsh-pfm-settings-description{margin:5px 0 0;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}',
+    '.dsh-pfm-settings-panel-body{display:flex;flex-direction:column}',
     '.dsh-pfm-settings-card:hover,.dsh-pfm-settings-card[data-open="true"]{border-color:var(--dsw-alias-label-dimmed)}',
     '.dsh-pfm-settings-card[data-open="true"]{background:var(--dsw-alias-bg-layer-2)}',
     '.dsh-pfm-settings-header{width:100%;appearance:none;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px}',
@@ -1327,7 +1332,6 @@ module.exports = function createClientPlugin(React, options) {
       props.pfmSettingsStore.getSnapshot,
     )
     const resolved = normalizeUserSettings(snapshot.value)
-    const [open, setOpen] = React.useState(false)
     const [advanced, setAdvanced] = React.useState(false)
     const [draft, setDraft] = React.useState(resolved)
     const [baseline, setBaseline] = React.useState(resolved)
@@ -1432,23 +1436,13 @@ module.exports = function createClientPlugin(React, options) {
       ? copy.noModels
       : null
 
-    return h('li', {
-      className: 'dsh-pfm-settings-card',
-      'data-open': String(open),
-    },
-    h('button', {
-      type: 'button', className: 'dsh-pfm-settings-header', 'aria-expanded': open,
-      'aria-label': `${open ? copy.collapse : copy.expand}: ${copy.title}`,
-      onClick: () => setOpen(!open),
-    },
-    h('span', { className: 'dsh-pfm-settings-head-text' },
-      h('span', { className: 'dsh-pfm-settings-name' }, copy.title),
-      h('span', { className: 'dsh-pfm-settings-description' }, copy.description)),
-    dirty ? h('span', { className: 'dsh-pfm-settings-pending' }, copy.unsaved) : null,
-    h('span', {
-      className: 'dsh-pfm-settings-chevron', 'data-open': String(open), 'aria-hidden': 'true',
-    }, '⌄')),
-    open ? h('div', { className: 'dsh-pfm-settings-body' },
+    return h('div', { className: 'dsh-pfm-settings-page' },
+      h('header', { className: 'dsh-pfm-settings-panel-header' },
+        h('div', { className: 'dsh-pfm-settings-head-text' },
+          h('h2', { className: 'dsh-pfm-settings-name' }, copy.title),
+          h('p', { className: 'dsh-pfm-settings-description' }, copy.description)),
+        dirty ? h('span', { className: 'dsh-pfm-settings-pending' }, copy.unsaved) : null),
+      h('div', { className: 'dsh-pfm-settings-panel-body' },
       !writable ? h('p', { className: 'dsh-pfm-settings-status', role: 'status' }, copy.readOnly) : null,
       h('div', { className: 'dsh-pfm-settings-row' },
         h('div', { className: 'dsh-pfm-settings-copy' },
@@ -1617,7 +1611,7 @@ module.exports = function createClientPlugin(React, options) {
           type: 'button', className: 'dsh-pfm-settings-button dsh-pfm-settings-save',
           disabled: !dirty || !writable || saving, onClick: () => { void save() },
         }, saving ? copy.saving : copy.save))
-    ) : null)
+    ))
   }
 
   return {
@@ -1661,18 +1655,21 @@ module.exports = function createClientPlugin(React, options) {
         order: 89,
         label: 'Prompt for Me preview / Prompt 嘴替预览',
       }, PromptForMePreview))
-      slots.inject('settings.plugin.item', () => slots.register({
-        name: 'settings.plugin.item',
-        key: 'prompt-for-me',
+      slots.inject('settings.section', () => slots.register({
+        name: 'settings.section',
         id: 'prompt-for-me',
-        order: 30,
-        label: 'Prompt for Me / Prompt 嘴替',
-        inject: () => ({
+        order: 100,
+        label: () => isChinese() ? 'Prompt for Me / Prompt 嘴替' : 'Prompt Designer',
+        icon: React.createElement(SparklesIcon),
+        iconName: 'prompt',
+        Icon: SparklesIcon,
+        renderIcon: () => React.createElement(SparklesIcon),
+      }, (props) => PromptForMeSettingsCard({
+        ...props,
           pfmSettingsScope: settingsScope,
           pfmSettingsStore: settingsStore,
           pfmModelDirectories: ctx.get('modelDirectories'),
-        }),
-      }, PromptForMeSettingsCard))
+      })))
     },
     _testing: {
       activeCandidate,
