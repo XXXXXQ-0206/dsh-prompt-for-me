@@ -1,55 +1,68 @@
-# Prompt for Me（Prompt 嘴替）
+# dsh-prompt-for-me
 
-[English](README.md)
+**为 DeepSeek Harness 设计的 Prompt 设计伙伴。**
 
-[![GitHub](https://img.shields.io/badge/GitHub-XXXXXQ--0206%2Fdsh--prompt--for--me-blue)](https://github.com/XXXXXQ-0206/dsh-prompt-for-me)
+`dsh-prompt-for-me` 位于 Harness 输入栏旁边，帮你把模糊的想法变成开发 Agent 可以直接执行的 Prompt。它会读取当前项目作为背景，理解草稿背后的真实意图，然后优化现有草稿，或在草稿为空时设计下一步最有价值的开发 Prompt。结果会流式写入输入框，你可以继续审阅、撤销、重做，再像普通草稿一样发送。
 
-Prompt for Me（Prompt 嘴替）会在 DeepSeek Harness 输入栏右下区域加入一个紧凑按钮：位于上下文占用图标的右侧、发送按钮左侧，支持两种模式：
+这不是自动 Ghost Text 插件，也不会代替你发送消息。
 
-- 输入框有非全空格文本时，按钮显示为「优化提示词」，使用当前选择的模型优化这段 prompt。
-- 输入框为空但已打开项目时，按钮显示为「设计提示词」，用于设计让当前项目继续前进的下一步开发 Prompt。
-- 新 Session 既无草稿也无真人上下文时，按钮会禁用，并提示先输入任务；此时没有足够证据猜测下一句。
+## 为什么需要它
 
-结果会以流式方式直接写入草稿。生成期间输入框会锁定；再次点击按钮会立即中断请求并恢复原始草稿；`Ctrl+Z` / `Ctrl+Y` 可在生成历史中撤销和重做。
+写好一条 Agent Prompt 本质上是一种设计工作。它通常需要知道：
 
-本 fork 没有自动按钮，也不展示 Ghost Text 流程。新按钮是原手动 Trigger 的升级版，复用了它的生成、历史、偏好记忆、当前周期反馈和模型路由基础设施。
+- 你正在解决什么问题；
+- 项目当前已经包含什么；
+- 下一步应该修改哪段代码、执行哪个命令、聚焦哪个模块；
+- 需要哪些行为、输出、边界、测试和验收标准；
+- 哪些约束必须原样保留。
 
-![Prompt for Me 交互流程](assets/interaction-flow.svg)
+`dsh-prompt-for-me` 负责收集这些背景并完成 Prompt 设计，而不是把项目变成摘要，或者生成一条助手式回复。
 
-## 功能
+## 功能亮点
 
-- 在输入栏右下区域、上下文占用图标右侧与发送按钮之间增加一个紧凑图标按钮。
-- 根据当前草稿和项目状态自动选择“设计提示词”或“优化提示词”。
-- 项目只作为背景：扫描 Session 的 `cwd`，最多纳入 100 个项目文件，读取 `package.json`、`pyproject.toml`、`go.mod`、`Cargo.toml`、`tsconfig.json`、`README.md` 等关键 manifest，并观察最近 git 状态。最终输出不是项目摘要，也不是助手回复，而是一条可执行的提示词。
-- 使用输入框当前选择的 provider/model，也就是用户按 Enter 发送时使用的同一个模型。
-- 模型增量直接流式写入草稿，并在请求完成前锁定输入框。
-- 生成中再次点击会中止请求并恢复原始草稿。
-- 保存流式草稿快照，支持 `Ctrl+Z` 撤销、`Ctrl+Y` 重做。
-- 保留本轮已跳过的候选，让模型避免重复或改写复述；最多保留 10 条。
-- 保留有界的跨会话偏好记忆和当前会话反馈。
-- 诚实地遵循原始提示词：优化结果不会反问用户、不会要求用户补细节，而是基于项目证据做出最佳设计并直接给出可用 Prompt。
-- 不调用工具、不绕过 Harness 权限审批、不自动发送消息。
+- **一个按钮，两种模式**  
+  输入框有正文时显示 **优化提示词**；项目已打开且输入框为空时显示 **设计提示词**。
 
-## 交互对照
+- **项目级上下文**  
+  读取 Session `cwd`、有界的文件树、关键 manifest，以及最近 git 状态/diff。背景只用于理解，不会成为最终输出。
 
-| 场景 | 结果 |
+- **设计而不是预测**  
+  草稿为空时，它会设计下一步值得执行的工程动作，不会模仿用户语气，也不会生成闲聊。
+
+- **诚实的优化**  
+  保留原始 Prompt 的核心意图，不扩展成无关需求；优化结果中不会反问用户、要求用户补充细节。
+
+- **使用你当前选中的模型**  
+  复用输入框当前选择的 provider/model，并支持 Session 请求头与固定组合配置兜底。
+
+- **流式且可控**  
+  输出增量写入草稿；请求期间锁定输入；再次点击立即中断并恢复原始草稿；`Ctrl+Z` / `Ctrl+Y` 支持回退与重做。
+
+- **隐私优先**  
+  只发送有界文本，项目路径、manifest、会话历史和交互记忆均有上限；调用模型前会替换常见密钥模式。
+
+## 使用方式
+
+1. 在项目工作区打开 DeepSeek Harness Web Session。
+2. 点击输入栏右下“上下文占用图标右侧、发送按钮左侧”的按钮。
+3. 有正文时优化 Prompt；空输入时设计下一步开发 Prompt。
+4. 审阅流式结果，按需修改，再像普通草稿一样发送。
+
+| 操作 | 结果 |
 | --- | --- |
-| 输入任务后点击「优化提示词」 | 使用当前模型优化 prompt，并流式写入草稿。 |
-| 新 Session 且草稿为空 | 按钮禁用，等待输入任务或已有真人上下文。 |
-| 已打开项目且草稿为空 | 基于当前项目文件、git 状态与未完成工作，设计下一步值得执行的开发提示词。 |
-| 生成中再点按钮 | 终止请求并恢复原始草稿，便于继续修改。 |
-| `Ctrl+Z` / `Ctrl+Y` | 在流式生成历史中撤销/重做。 |
-| 按 Enter | 只发送当前看到的草稿；插件自身绝不提交。 |
+| 输入任务后点击 **优化提示词** | 使用项目上下文优化当前 Prompt。 |
+| 打开项目、草稿为空后点击 **设计提示词** | 设计下一步高价值开发 Prompt。 |
+| 生成中再次点击 | 中止请求并恢复原始草稿。 |
+| `Ctrl+Z` / `Ctrl+Y` | 在生成历史中撤销/重做。 |
+| 按 Enter | 只发送最终可见草稿。 |
 
 ## 安装
 
-推荐安装 Release 中已经构建好的 tarball，不需要执行构建脚本：
+Release 包含预构建的 Host 与 Client 产物：
 
 ```sh
 dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.6.7/dsh-prompt-for-me-0.6.7.tgz
 ```
-
-安装后重启 `dsh web`。
 
 也可以安装固定 Git 标签：
 
@@ -57,7 +70,7 @@ dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/re
 dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.6.7
 ```
 
-使用 pnpm 10 从 Git 安装时，可能需要在 Web profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 添加 `dsh-prompt-for-me: true`，然后重新运行命令。`prepare` 脚本只复制 checkout 中的 Host 文件并包装 Client factory，不会下载任何内容。
+安装后重启 `dsh web`。从 Git 安装时，pnpm 可能要求允许包的 `prepare` 脚本；它只复制 Host 文件并包装 Client factory。
 
 更新或卸载：
 
@@ -66,91 +79,28 @@ dsh plugin --profile web update dsh-prompt-for-me
 dsh plugin --profile web remove dsh-prompt-for-me
 ```
 
-当前 DeepSeek Harness 开发版本提供本 fork 所需的 composer selection hooks。手动生成流程直接写入草稿，不依赖原生 Ghost Text API。
+## 设置
 
-## Web UI 设置
+打开 **设置 → 插件 → 可配置 → Prompt for Me / Prompt 嘴替**。
 
-打开 **设置 → 插件 → 可配置**，展开 **Prompt for Me / Prompt 嘴替**。设置卡片沿用 Harness 的设置层级、颜色、间距和保存交互，并把选择持久化到统一的 Host 用户设置中；保存后立即生效，无须重启。
+- **手动生成快捷键** 默认为 `Mod+Shift+Space`。
+- **高级设置 → 建议模型** 默认跟随当前 Session，也可以固定到 Harness 模型目录中的某个 provider/model。
 
-- **手动生成快捷键**：默认是 `Mod+Shift+Space`。点击当前组合键后直接按下新的 Command/Ctrl 或 Alt 组合键，也可以单独关闭快捷键。生成期间仍可用 `Ctrl+Z` / `Ctrl+Y` 控制流式历史。
-- **高级设置 → 建议模型**：默认跟随当前 Session 已选择的模型；也可以固定到当前 Harness 模型目录中的某个 provider/model。
+上下文预算、偏好记忆、模型输出上限和超时均由产品统一管理，不要求用户调整内部参数。
 
-界面不提供“参考范围”“快速/个性化模式”“重置个性化记录”或内部 token/超时参数。这些行为由插件统一选择，以免把上下文质量和个性化策略的复杂性转嫁给用户。
+## 架构
 
-## 模型和 API Key
+这是一个同时包含 Host 与 Browser 两端的 dsh bundle：
 
-插件在 Harness Host 上调用 `ctx.llm`。它优先复用输入框当前选择的 provider/model（与 Enter 发送时一致），再回退到 Session 请求头配置，最后才使用固定组合配置，因此使用的就是 DeepSeek Harness 已配置的 API Key。浏览器拿不到也不会读取这个 Key，插件没有单独的 Key。
-
-普通用户可在 Web UI 的高级设置中固定辅助模型。部署维护者也可在 `cordis.patch.yml` 或更高优先级的 profile patch 中同时配置一个基础值；用户保存的 Web UI 设置优先于这个基础值：
-
-```yaml
-- id: prompt-for-me
-  name: dsh-prompt-for-me
-  config:
-    provider: deepseek-official
-    model: deepseek-chat
+```text
+src/index.cjs              Host 入口：Session 事件、项目上下文、模型路由、NDJSON RPC
+src/core.cjs               有界 Prompt 输入、脱敏、记忆、按模式切换的系统指令
+src/client-factory.cjs     Browser 半边：输入栏按钮、流式处理、锁定/中断/撤销
+cordis.patch.yml           Web Profile bundle patch
+lib/                       生成的 Host/Client 产物
 ```
 
-## 数据与隐私
-
-每次生成建议时，Host 可能把下列有界文本发送给当前选择的模型提供方：
-
-- 当前草稿；
-- 有界的项目快照：当前目录、源码文件树、关键 manifest 摘要和最近 git 状态/diff 摘要；
-- 当前会话最近 3 轮真人用户/助手文本；
-- 当前会话中已发送的建议编辑、原样接受和拒绝记录；
-- 来自最多 20 个历史会话的手写提示词和建议交互原始样本；
-- 本轮最多 10 条已经跳过的建议，用于让模型避免重复或改写复述。
-
-当前草稿、项目快照和最近 3 轮用于理解当前任务、意图和下一步；项目上下文只是背景，最终目标是设计可执行的工程提示词，而不是泛泛的助手回复。当前会话反馈只调整眼前的表达；跨会话记忆只能影响长期的风格、详略和工作流偏好。手写提示词和编辑后发送的建议权重高于原样接受，拒绝记录只作为较弱的负向信号。编辑建议后再次 Trigger 会拒绝原建议，但不会把尚未发送的编辑结果当成正向偏好。
-
-Harness 会把工作区指令、运行时上下文和 Skill 列表记录为用户角色事件；插件会从会话轮次和偏好记忆中排除这些非真人来源。只有既没有草稿也没有足够项目证据的新 Session 才会禁用；工作区包含源码或 manifest 后即可进行项目级提示词设计。
-
-常见 API Key、token、password 和 Bearer token 会在模型调用前替换为 `[REDACTED_SECRET]`。插件不会收集附件、工具参数、文件、凭证或二进制内容；没有分析上报服务，只会调用 Harness 已选择的模型路由。
-
-交互记录只保存在当前浏览器 `localStorage` 的 `dsh.prompt-for-me.outcomes.v2`，每条包含会话 ID、最终动作、来源以及相关的原文/最终文本。实际发送后才会形成反馈证据。V1 记录会自动迁移，原记录不会删除。
-
-DeepSeek Harness `0.1.0-rc.6` 尚未提供下游插件注册自定义持久化 session event 的公开接口。因此独立版不会把辅助模型请求和建议结果追加到 Harness session log；强行写入会导致原版运行时无法重新读取会话。这是独立版与实验性仓库内实现的主要差异，待官方开放事件注册接口后再补齐。
-
-生成 RPC 使用 NDJSON。原始 prompt 增量会边到达边写入草稿，最终候选在请求结束前按输出上限校验；模型会按要求直接输出纯文本 prompt，不返回 JSON 包装。失败会显示在按钮提示中，可再次点击重试。
-
-辅助请求始终使用 `off` reasoning。模型收到一段按“设计提示词/优化提示词”模式切换的系统指令，以及一条包含 `mode`、`originalPrompt`、`project`、`current`、`currentSessionFeedback`、`userPreferenceMemory` 和 `currentCycleSkipped` 的 JSON 用户消息；不会收到工具定义或附件。
-
-Host 在内存中保留最近 50 条隐私安全的性能记录，并把每条记录以 `prompt-for-me metrics` 写入日志。记录包含模型路由、各类文本的字节数/条数、历史读取和输入组装耗时、首个模型增量/reasoning/text 的时间、建议到达时间、模型与请求总耗时，以及提供方返回的 token usage；不包含提示词、候选或交互结果正文。可查询当前进程：
-
-```sh
-curl -sS -X POST -H 'content-type: application/json' \
-  -d '{"method":"metrics"}' \
-  http://127.0.0.1:3080/dsh-prompt-for-me/rpc
-```
-
-## 配置
-
-Web UI 只公开上述三个对日常交互有明确价值的选项。下表是面向部署维护者的 `cordis.patch.yml` 组合参数；生成限制保留稳定默认值，不要求普通用户调整：
-
-| 字段 | 默认值 | 含义 |
-| --- | ---: | --- |
-| `automatic` | `false` | 保留用于兼容；本 fork 不再渲染或启动自动 Ghost 流程。 |
-| `maxCandidateBytes` | `4096` | 单条建议 UTF-8 上限。 |
-| `maxDraftBytes` | `32768` | 草稿或编辑结果 UTF-8 上限。 |
-| `maxCurrentCycleSkipped` | `10` | 作为下一次 Trigger 强负向上下文保留的已跳过建议数。 |
-| `maxCurrentCycleSkippedBytes` | `16384` | 当前周期已跳过建议共享的 JSON 预算。 |
-| `maxCurrentTurns` | `3` | 保留的当前会话最近轮数。 |
-| `maxCurrentContextBytes` | `16384` | 最近会话轮次的 JSON 预算。 |
-| `maxCurrentFeedbackBytes` | `4096` | 当前会话建议反馈的 JSON 预算。 |
-| `maxPreferenceMemoryBytes` | `8192` | 跨会话偏好记忆的 JSON 预算。 |
-| `maxHistorySessions` | `20` | 检查的历史会话数。 |
-| `maxManualPrompts` | `8` | 保留的历史手写提示词数。 |
-| `maxEditedSuggestions` | `6` | 每个反馈层保留的建议编辑对数。 |
-| `maxAcceptedExact` | `6` | 每个反馈层保留的原样接受数。 |
-| `maxRejectedSuggestions` | `4` | 每个反馈层保留的弱拒绝信号数。 |
-| `maxLocalOutcomes` | `50` | 浏览器本地交互记录上限。 |
-| `maxLocalOutcomesBytes` | `131072` | 浏览器本地记录及其 RPC 副本共享的 JSON 预算。 |
-| `maxProjectContextBytes` | `16384` | 项目目录树和关键 manifest 摘要的 UTF-8 预算。 |
-| `maxProjectTreeFiles` | `100` | 项目上下文包含的文件树条目上限。 |
-| `maxOutputTokens` | `2048` | 辅助模型输出预算。 |
-| `timeoutMs` | `30000` | 辅助模型调用超时。 |
-| `shortcut` | `Mod+Shift+Space` | 跨平台 Trigger，也可设为 `disabled`。 |
+Browser 通过 `/dsh-prompt-for-me/rpc` 使用 NDJSON 通信。Host 收集项目证据、限制所有文本字段大小、调用当前选中的 `ctx.llm` 路由，并把增量与最终候选流式返回输入框。
 
 ## 开发
 
@@ -160,7 +110,7 @@ Web UI 只公开上述三个对日常交互有明确价值的选项。下表是�
 npm run check
 ```
 
-该命令会重新构建 Host/Client 静态产物、运行 Node 测试，并检查 npm 包内容。
+该命令会重建静态产物、运行测试，并检查包内容。
 
 ## License
 
