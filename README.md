@@ -1,5 +1,11 @@
 # dsh-prompt-for-me
 
+<p align="center">
+  <a href="README.zh.md"><kbd>中文</kbd></a>
+  &nbsp;|&nbsp;
+  <a href="README.md"><kbd>English</kbd></a>
+</p>
+
 **A prompt design companion for DeepSeek Harness.**
 
 `dsh-prompt-for-me` sits beside the Harness composer and helps you turn a rough idea into a prompt that a coding agent can execute. It observes the current project as background, understands the intent behind your draft, and either optimizes that draft or designs the next worthwhile development step. The result is streamed directly into the composer, so you can review, undo, redo, and send it.
