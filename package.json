@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-for-me",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Prompt design assistant for DeepSeek Harness: designs next development prompts and optimizes current drafts with project context.",
   "type": "commonjs",
   "main": "lib/index.cjs",
@@ -32,8 +32,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-model-selection",
-        "@deepseek-ai/dsh-client-ui-settings-plugins"
+        "@deepseek-ai/dsh-client-ui-settings-general"
       ],
       "platform": "web"
     }
@@ -44,8 +43,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-client-runtime": ">=0.0.1-rc.1",
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.0.1-rc.1",
-    "@deepseek-ai/dsh-client-ui-model-selection": ">=0.0.1-rc.3",
-    "@deepseek-ai/dsh-client-ui-settings-plugins": ">=0.0.1-rc.3"
+    "@deepseek-ai/dsh-client-ui-settings-general": ">=0.0.1-rc.1"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-client-runtime": {
@@ -54,10 +52,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": {
       "optional": true
     },
-    "@deepseek-ai/dsh-client-ui-model-selection": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-client-ui-settings-plugins": {
+    "@deepseek-ai/dsh-client-ui-settings-general": {
       "optional": true
     }
   },

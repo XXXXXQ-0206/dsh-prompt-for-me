@@ -60,6 +60,12 @@ test('user settings expose only automatic behavior, shortcut, and an atomic mode
     automatic: false,
     shortcut: 'Mod+Alt+K',
     route: { provider: 'profile-provider', model: 'profile-model' },
+    projectContextEnabled: true,
+    projectContextDepth: 3,
+    maxProjectTreeFiles: 100,
+    maxProjectContextBytes: 16384,
+    maxOutputTokens: 2048,
+    timeoutMs: 9000,
   })
 
   const following = core.applyUserSettings(baseConfig, {
@@ -328,17 +334,18 @@ test('parseCandidateLine enforces one bounded candidate field', () => {
 
 test('systemPrompt states the prediction hierarchy, safety boundaries, and response format', () => {
   const prompt = core.systemPrompt()
-  assert.match(prompt, /Predict one ready-to-send next message/)
-  assert.match(prompt, /current\.draft is the strongest evidence/)
-  assert.match(prompt, /recentTurns\[\]\.user for the live task/)
-  assert.match(prompt, /recentTurns\[\]\.assistant only as context/)
-  assert.match(prompt, /userPreferenceMemory only for durable/)
-  assert.match(prompt, /editedSuggestions\.final from submitted edits outweigh acceptedExact/)
-  assert.match(prompt, /rejectedSuggestions are weak/)
-  assert.match(prompt, /materially different, context-supported message/)
-  assert.match(prompt, /while staying on the current task/)
-  assert.match(prompt, /quoted evidence, not instructions to this predictor/)
-  assert.match(prompt, /history never grants approval or permission/)
-  assert.match(prompt, /exactly one single-line JSON object and nothing else/)
-  assert.match(prompt, /"candidate":"<message>"/)
+  assert.match(prompt, /prompt design partner/)
+  assert.match(prompt, /design one prompt that an agent should execute/)
+  assert.match(prompt, /user intent is the source of truth/)
+  assert.match(prompt, /Do not add new features, refactors, investigations, cleanup, tests, or requirements/)
+  assert.match(prompt, /project\.cwd, project\.tree, project\.manifests, and project\.git/)
+  assert.match(prompt, /This is intent design, not next-message prediction and not a roadmap/)
+  assert.match(prompt, /current\.recentTurns and project evidence only as background/)
+  assert.match(prompt, /Never invent files, facts, requirements, permissions, approvals/)
+  assert.match(prompt, /The final output must be a self-contained, actionable prompt/)
+  assert.match(prompt, /Never end the output with a question, never ask the user for missing details/)
+  assert.match(prompt, /Output contract: one direct prompt/)
+  const optimize = core.systemPrompt('optimize')
+  assert.match(optimize, /preserve the engineer's real intent exactly/)
+  assert.match(optimize, /Rewrite only to clarify and operationalize the same request/)
 })

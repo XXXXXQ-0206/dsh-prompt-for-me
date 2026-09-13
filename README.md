@@ -36,10 +36,10 @@ Writing a good agent prompt is a design task, not a chat activity. The useful pr
   When the draft is empty, it designs the next profitable engineering step. It does not imitate the user or produce casual conversational text.
 
 - **Honest optimization**  
-  It preserves the original prompt instead of expanding it into unrelated work. It never asks the user for missing details inside the optimized result.
+  The user's intent is the source of truth. It preserves the original prompt instead of expanding it into unrelated work, and never asks the user for missing details inside the optimized result.
 
 - **Uses your selected model**  
-  It calls the same provider/model selected in the composer, including fallbacks to the session request header and fixed composition configuration.
+  It calls the same provider/model selected in the composer and reuses the session reasoning effort when available, including fallbacks to the session request header and fixed composition configuration.
 
 - **Streamed, controlled editing**  
   Output streams into the draft, input is locked during request, a second click cancels and restores the original draft, and `Ctrl+Z` / `Ctrl+Y` walk through the generated history.
@@ -67,13 +67,13 @@ Writing a good agent prompt is a design task, not a chat activity. The useful pr
 Release tarballs contain the prebuilt host and client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.0/dsh-prompt-for-me-0.7.0.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.1/dsh-prompt-for-me-0.7.1.tgz
 ```
 
 You can also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.0
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.1
 ```
 
 Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.

@@ -263,6 +263,75 @@ async function collectProjectContext(ctx, session, config) {
   return utf8Bytes(JSON.stringify(project)) <= config.maxProjectContextBytes ? project : null
 }
 
+function withCatalogTimeout(promise, timeoutMs = 5000) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('catalog-timeout')), timeoutMs)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+async function collectModelCatalog(ctx) {
+  const llm = service(ctx, 'llm')
+  if (!llm || typeof llm.listProviders !== 'function'
+    || typeof llm.listModels !== 'function') {
+    throw new Error('llm-catalog-unavailable')
+  }
+  const groups = []
+  const failures = []
+  await Promise.all(llm.listProviders().map(async (provider) => {
+    try {
+      const models = await withCatalogTimeout(llm.listModels(provider.id))
+      const entries = []
+      for (const model of models || []) {
+        if (!model || typeof model.id !== 'string' || model.id === '') continue
+        let resolved
+        try {
+          resolved = typeof llm.resolveModelInfo === 'function'
+            ? await withCatalogTimeout(llm.resolveModelInfo(provider.id, model.id))
+            : model
+        } catch {
+          resolved = model
+        }
+        const reasoning = resolved && resolved.reasoning
+          ? {
+              efforts: Array.isArray(resolved.reasoning.efforts)
+                ? resolved.reasoning.efforts.map((effort) => ({
+                    id: effort.id,
+                    name: effort.name,
+                    ...(effort.description === undefined ? {} : { description: effort.description }),
+                  }))
+                : [],
+              ...(resolved.reasoning.defaultEffort === undefined
+                ? {}
+                : { defaultEffort: resolved.reasoning.defaultEffort }),
+            }
+          : undefined
+        entries.push({
+          id: model.id,
+          name: typeof model.name === 'string' && model.name !== '' ? model.name : model.id,
+          ...(model.description === undefined ? {} : { description: model.description }),
+          ...(reasoning === undefined ? {} : { reasoning }),
+        })
+      }
+      if (entries.length > 0) {
+        groups.push({
+          id: provider.id,
+          name: typeof provider.name === 'string' && provider.name !== '' ? provider.name : provider.id,
+          models: entries,
+        })
+      }
+    } catch (error) {
+      failures.push({
+        id: provider.id,
+        name: typeof provider.name === 'string' && provider.name !== '' ? provider.name : provider.id,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }))
+  return { groups, failures }
+}
+
 function automaticTurnIsCurrent(session, trigger) {
   const events = sessionEvents(session)
   if (!session || events.length === 0 || !trigger || trigger.kind !== 'automatic') return false
@@ -280,15 +349,23 @@ function resolveRoute(ctx, session, config) {
   if (config.provider !== undefined && config.model !== undefined) {
     return { provider: config.provider, model: config.model }
   }
+  const fromSelection = (value) => {
+    if (!value || typeof value.provider !== 'string' || value.provider === ''
+      || typeof value.model !== 'string' || value.model === '') return undefined
+    return {
+      provider: value.provider,
+      model: value.model,
+      ...(typeof value.reasoningEffort === 'string' && value.reasoningEffort !== ''
+        ? { reasoningEffort: value.reasoningEffort }
+        : {}),
+    }
+  }
   // 默认路由：跟随输入框当前选择 / Session request header。
   try {
     const defaults = service(ctx, 'agentDefaultModel')
     if (defaults && typeof defaults.currentSelection === 'function') {
-      const live = defaults.currentSelection()
-      if (live && typeof live.provider === 'string' && live.provider !== ''
-        && typeof live.model === 'string' && live.model !== '') {
-        return { provider: live.provider, model: live.model }
-      }
+      const live = fromSelection(defaults.currentSelection())
+      if (live) return live
     }
   } catch {
     // 当前选择不可用时继续回退
@@ -301,11 +378,7 @@ function resolveRoute(ctx, session, config) {
   } catch {
     selected = undefined
   }
-  if (selected && typeof selected.provider === 'string' && selected.provider !== ''
-    && typeof selected.model === 'string' && selected.model !== '') {
-    return { provider: selected.provider, model: selected.model }
-  }
-  return undefined
+  return fromSelection(selected)
 }
 
 async function historicalEvents(ctx, sessionId, config) {
@@ -481,7 +554,11 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
     }
     const route = resolveRoute(ctx, session, config)
     if (!route) return failure('NO_MODEL_ROUTE', 'No model is selected for this session.')
-    metric.route = { provider: route.provider, model: route.model, reasoningEffort: 'off' }
+    metric.route = {
+      provider: route.provider,
+      model: route.model,
+      reasoningEffort: route.reasoningEffort ?? null,
+    }
 
     let timedOut = false
     const controller = new AbortController()
@@ -533,12 +610,11 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
         )
       }
       modelStarted = now()
-      const stream = llm.stream({
+      const streamOptions = {
         provider: route.provider,
         model: route.model,
         sessionId: args.sessionId,
         maxTokens: config.maxOutputTokens,
-        reasoningEffort: 'off',
         system,
         messages: [{
           id: `prompt-for-me-${randomUUID()}`,
@@ -547,7 +623,11 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
           source: { kind: 'plugin', plugin: 'dsh-prompt-for-me' },
         }],
         signal: controller.signal,
-      })
+      }
+      if (route.reasoningEffort !== undefined) {
+        streamOptions.reasoningEffort = route.reasoningEffort
+      }
+      const stream = llm.stream(streamOptions)
       const candidate = await collectCandidate(
         stream,
         controller,
@@ -681,6 +761,15 @@ function registerRoute(ctx, getConfig, getSettingsBinding) {
         })
         return
       }
+      if (body.method === 'model-catalog') {
+        try {
+          const catalog = await collectModelCatalog(ctx)
+          json(response, 200, { ok: true, catalog })
+        } catch {
+          json(response, 200, { ok: false, code: 'MODELS_UNAVAILABLE' })
+        }
+        return
+      }
       if (body.method === 'settings') {
         const binding = getSettingsBinding()
         if (binding === undefined) {
@@ -810,6 +899,7 @@ module.exports = {
   _testing: {
     get UserSettingsSchema() { return getUserSettingsSchema() },
     collectCandidate,
+    collectModelCatalog,
     collectProjectContext,
     createMetricsStore,
     createGenerateHandler,

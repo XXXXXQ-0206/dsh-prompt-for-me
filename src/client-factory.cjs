@@ -48,6 +48,16 @@ module.exports = function createClientPlugin(React, options) {
         })
         return response.json()
       }
+  const rpcWithTimeout = async (method, args, timeoutMs = 8000) => {
+    let timer
+    const operation = Promise.race([
+      rpc(method, args),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('rpc-timeout')), timeoutMs)
+      }),
+    ])
+    return operation.finally(() => clearTimeout(timer))
+  }
   const streamGenerate = options && typeof options.generate === 'function'
     ? options.generate
     : async (args, onCandidate, signal, onDelta = () => {}) => {
@@ -139,7 +149,7 @@ module.exports = function createClientPlugin(React, options) {
       const expectedGeneration = ++generation
       const task = tail.then(async () => {
         try {
-          const result = await rpc('settings', {})
+          const result = await rpcWithTimeout('settings', {})
           if (!accept(result, expectedGeneration) && expectedGeneration === generation
             && snapshot.status !== 'ready') {
             publish({ ...snapshot, status: 'unavailable', writable: false })
@@ -158,14 +168,14 @@ module.exports = function createClientPlugin(React, options) {
       const task = tail.then(async () => {
         let result
         try {
-          result = await rpc('update-settings', { settings })
+          result = await rpcWithTimeout('update-settings', { settings })
         } catch {
           result = undefined
         }
         if (!accept(result, expectedGeneration) && expectedGeneration === generation) {
           const refreshGeneration = ++generation
           try {
-            accept(await rpc('settings', {}), refreshGeneration)
+            accept(await rpcWithTimeout('settings', {}), refreshGeneration)
           } catch {
             // The last good snapshot remains usable and the card reports that the save did not land.
           }
@@ -739,7 +749,7 @@ module.exports = function createClientPlugin(React, options) {
     if (!force && automaticPolicyReady) return configurationRequest
     if (configurationRequest !== null) return configurationRequest
     configurationRequest = Promise.resolve()
-      .then(() => rpc('configuration', {}))
+      .then(() => rpcWithTimeout('configuration', {}))
       .then((result) => { applyConfiguration(result) })
       .catch(() => {})
       .finally(() => { configurationRequest = null })
@@ -997,13 +1007,14 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-settings-chevron{flex:none;color:var(--dsw-alias-label-tertiary);font-size:16px;transition:transform .16s}',
     '.dsh-pfm-settings-chevron[data-open="true"]{transform:rotate(180deg)}',
     '.dsh-pfm-settings-body{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}',
-    '.dsh-pfm-settings-row{display:flex;align-items:center;gap:18px;padding:14px 0}',
+    '.dsh-pfm-settings-row{display:flex;align-items:flex-start;gap:18px;padding:14px 0}',
     '.dsh-pfm-settings-row+.dsh-pfm-settings-row,.dsh-pfm-settings-advanced{border-top:1px solid var(--dsw-alias-border-l2)}',
-    '.dsh-pfm-settings-model-control{display:flex;flex-direction:column;gap:8px;min-width:280px}',
-    '.dsh-pfm-settings-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}',
+    '.dsh-pfm-settings-model-control{display:flex;flex-direction:column;gap:8px;flex:0 1 360px;width:100%;max-width:360px;min-width:280px}',
+    '.dsh-pfm-settings-copy{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:3px}',
     '.dsh-pfm-settings-label{font-size:13px;font-weight:500;line-height:1.5;color:var(--dsw-alias-label-primary)}',
     '.dsh-pfm-settings-hint,.dsh-pfm-settings-status{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}',
     '.dsh-pfm-settings-status[data-error="true"]{color:var(--dsw-alias-label-error)}',
+    '.dsh-pfm-settings-warning{color:var(--dsw-alias-state-warn-label)}',
     '.dsh-pfm-switch{position:relative;display:inline-flex;flex:none;width:36px;height:20px}',
     '.dsh-pfm-switch input{position:absolute;opacity:0;pointer-events:none}',
     '.dsh-pfm-switch span{width:36px;height:20px;border-radius:999px;background:var(--dsw-alias-border-l1);transition:background .16s;box-shadow:inset 0 0 0 1px var(--dsw-alias-border-l2)}',
@@ -1016,15 +1027,26 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-settings-button:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}',
     '.dsh-pfm-settings-button:disabled{opacity:.45;cursor:default}',
     '.dsh-pfm-settings-key{min-width:120px;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
-    '.dsh-pfm-settings-advanced-toggle{width:100%;appearance:none;border:0;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;text-align:left;padding:13px 0;cursor:pointer}',
-    '.dsh-pfm-settings-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 0 12px}',
+    // Disclosure styling mirrors dsh-client-ui-settings-models'
+    // native customized details/summary baseline.
+    '.dsh-pfm-settings-advanced{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:10px}',
+    '.dsh-pfm-settings-advanced-toggle{cursor:pointer;width:fit-content;color:var(--dsw-alias-label-secondary);border-radius:6px;align-items:center;gap:6px;margin-left:-4px;padding:2px 4px;font-size:12px;font-weight:500;line-height:18px;list-style:none;display:flex}',
+    '.dsh-pfm-settings-advanced-toggle::-webkit-details-marker{display:none}',
+    '.dsh-pfm-settings-advanced-toggle::before{content:"";border-bottom:1.5px solid;border-right:1.5px solid;width:5px;height:5px;transition:transform .12s;transform:rotate(-45deg)translate(-1px,-1px)}',
+    '.dsh-pfm-settings-advanced[open]>.dsh-pfm-settings-advanced-toggle::before{transform:rotate(45deg)translate(-1px,-1px)}',
+    '.dsh-pfm-settings-advanced-toggle:hover{color:var(--dsw-alias-label-primary)}',
+    '.dsh-pfm-settings-advanced-body{display:flex;flex-direction:column;gap:12px;padding-top:12px}',
+    '.dsh-pfm-settings-advanced-body .dsh-pfm-settings-row{padding:0}',
+    '.dsh-pfm-settings-advanced-body .dsh-pfm-settings-row+.dsh-pfm-settings-row{border-top:0}',
+    '.dsh-pfm-settings-choices{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 0 12px}',
     '.dsh-pfm-settings-choice{position:relative;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;cursor:pointer;background:var(--dsw-alias-bg-layer-3)}',
     '.dsh-pfm-settings-choice[data-selected="true"]{border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 7%,var(--dsw-alias-bg-layer-3))}',
     '.dsh-pfm-settings-choice input{position:absolute;opacity:0;pointer-events:none}',
     '.dsh-pfm-settings-choice strong{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}',
     '.dsh-pfm-settings-choice small{font-size:11px;line-height:1.45;color:var(--dsw-alias-label-tertiary)}',
-    '.dsh-pfm-settings-select{width:100%;height:36px;margin:0 0 12px;padding:0 34px 0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}',
+    '.dsh-pfm-settings-select{width:100%;max-width:240px;flex:0 1 240px;height:36px;margin:0 0 12px;padding:0 34px 0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}',
     '.dsh-pfm-settings-select:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+    '.dsh-pfm-settings-model-refresh{align-self:flex-start;margin-bottom:12px}',
     '.dsh-pfm-settings-input{height:34px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}',
     '.dsh-pfm-settings-input:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary)}',
     '.dsh-pfm-settings-number{width:116px}',
@@ -1291,17 +1313,22 @@ module.exports = function createClientPlugin(React, options) {
       record: '按下组合键', recording: '请按组合键…', disabled: '已关闭',
       disableShortcut: '关闭', restoreShortcut: '恢复默认',
       shortcutError: '请使用 Command/Ctrl 或 Alt 加一个普通按键。',
-      advanced: '更多自定义', hideAdvanced: '收起更多自定义',
+      advanced: '更多自定义',
       modelTitle: '生成提示词使用的模型',
       defaultRoute: '默认路由', defaultRouteHint: '跟随输入框当前 Session 选择，Enter 发送用哪个就用哪个。',
       customModel: '自定义模型', customModelHint: '在 dsh 已提供的提供商中固定一个模型，所有 Session 都使用。',
       model: '选择模型',
       noModels: '当前没有可用的模型目录。',
+      modelsHint: '选择「自定义模型」后加载 dsh 模型列表。',
+      modelsSavedHint: '已固定模型；如需使用 dsh 模型列表，请点击加载。',
+      refreshModels: '加载模型列表',
+      retryModels: '重试',
       loadingModels: '正在读取 dsh 可用提供商/模型…', modelError: '模型列表读取失败，可稍后重试。',
       projectContext: '读取项目上下文', projectContextHint: '扫描工作区文件树、manifest 和 git 状态，作为理解背景。',
       projectDepth: '项目扫描深度', maxFiles: '最大项目文件数', maxContext: '最大项目上下文',
       maxOutput: '最大输出 Tokens', timeout: '请求超时', seconds: '秒', tokens: 'Tokens', files: '个文件', kb: 'KB',
       configured: '当前配置', readOnly: '当前设置存储为只读，不能在这里修改。',
+      settingsUnavailable: '插件设置读取失败，当前显示默认值；保存不可用。',
       saveFailed: '保存没有生效，请检查 Host 设置服务。',
       discard: '放弃', save: '保存', saving: '保存中…',
     } : {
@@ -1313,17 +1340,22 @@ module.exports = function createClientPlugin(React, options) {
       record: 'Press shortcut', recording: 'Press keys…', disabled: 'Disabled',
       disableShortcut: 'Disable', restoreShortcut: 'Restore default',
       shortcutError: 'Use Command/Ctrl or Alt with a regular key.',
-      advanced: 'More customization', hideAdvanced: 'Hide more customization',
+      advanced: 'More customization',
       modelTitle: 'Model used for generated prompts',
       defaultRoute: 'Default route', defaultRouteHint: 'Follow the model selected in the current Session, exactly what Enter uses.',
       customModel: 'Custom model', customModelHint: 'Pin one model from the providers available in dsh; every Session uses it.',
       model: 'Select model',
       noModels: 'No model directory is available right now.',
+      modelsHint: 'Choose “Custom model” to load the dsh model list.',
+      modelsSavedHint: 'A model is pinned. Load the dsh model list to choose another one.',
+      refreshModels: 'Load model list',
+      retryModels: 'Retry',
       loadingModels: 'Loading dsh providers/models…', modelError: 'Could not load models. Try again later.',
       projectContext: 'Read project context', projectContextHint: 'Scan the workspace file tree, manifests, and git state as background.',
       projectDepth: 'Project scan depth', maxFiles: 'Max project files', maxContext: 'Max project context',
       maxOutput: 'Max output tokens', timeout: 'Request timeout', seconds: 'sec', tokens: 'Tokens', files: 'files', kb: 'KB',
       configured: 'Configured', readOnly: 'The current settings store is read-only.',
+      settingsUnavailable: 'Plugin settings could not be loaded. Defaults are shown and saving is unavailable.',
       saveFailed: 'The settings were not saved. Check the Host settings service.',
       discard: 'Discard', save: 'Save', saving: 'Saving…',
     }
@@ -1332,7 +1364,6 @@ module.exports = function createClientPlugin(React, options) {
       props.pfmSettingsStore.getSnapshot,
     )
     const resolved = normalizeUserSettings(snapshot.value)
-    const [advanced, setAdvanced] = React.useState(false)
     const [draft, setDraft] = React.useState(resolved)
     const [baseline, setBaseline] = React.useState(resolved)
     const baselineRef = React.useRef(resolved)
@@ -1340,9 +1371,11 @@ module.exports = function createClientPlugin(React, options) {
     const [failed, setFailed] = React.useState(false)
     const [recording, setRecording] = React.useState(false)
     const [shortcutError, setShortcutError] = React.useState(false)
-    const sessionId = props.useSessions((state) => state.current)
+    const [modelRequested, setModelRequested] = React.useState(false)
+    const [customSelectionPending, setCustomSelectionPending] = React.useState(false)
+    const modelLoadingRef = React.useRef(false)
     const [models, setModels] = React.useState({
-      current: null, groups: [], status: 'idle', error: null,
+      groups: [], status: 'idle', error: null,
     })
 
     React.useEffect(() => {
@@ -1352,23 +1385,39 @@ module.exports = function createClientPlugin(React, options) {
       setDraft((current) => sameUserSettings(current, previous) ? resolved : current)
     }, [snapshot.revision])
 
-    React.useEffect(() => {
-      if (sessionId === undefined || !props.pfmModelDirectories) return undefined
-      let directory
+    const loadModels = React.useCallback(async () => {
+      if (modelLoadingRef.current) return
+      modelLoadingRef.current = true
+      setModels((current) => ({ ...current, groups: current.groups, status: 'loading', error: null }))
       try {
-        directory = props.pfmModelDirectories.directoryFor(sessionId)
+        const result = await rpcWithTimeout('model-catalog', {})
+        const catalog = result && result.ok === true && result.catalog
+          ? result.catalog
+          : (result && result.groups ? result : null)
+        if (!catalog) throw new Error('catalog-unavailable')
+        setModels({
+          groups: Array.isArray(catalog.groups) ? catalog.groups : [],
+          status: 'ready',
+          error: null,
+        })
       } catch {
-        setModels({ current: null, groups: [], status: 'error', error: 'unavailable' })
-        return undefined
+        setModels({ groups: [], status: 'error', error: 'unavailable' })
+      } finally {
+        modelLoadingRef.current = false
       }
-      const publish = () => setModels(directory.store.getSnapshot())
-      publish()
-      const dispose = directory.store.subscribe(publish)
-      void directory.load().catch(publish)
-      return dispose
-    }, [sessionId, props.pfmModelDirectories])
+    }, [])
 
-    if (snapshot.status !== 'ready') return null
+    React.useEffect(() => {
+      if (!modelRequested || !customSelectionPending || draft.route !== null) return
+      const available = modelOptions(models.groups)
+      if (available.length === 0) return
+      setDraft((current) => ({
+        ...current,
+        route: { provider: available[0].provider, model: available[0].model },
+      }))
+      setCustomSelectionPending(false)
+    }, [modelRequested, customSelectionPending, models.groups, draft.route])
+
     const h = React.createElement
     const dirty = !sameUserSettings(draft, baseline)
     const writable = snapshot.writable === true
@@ -1382,11 +1431,7 @@ module.exports = function createClientPlugin(React, options) {
         providerLabel: `${draft.route.provider} · ${copy.configured}`,
       })
     }
-    const currentRoute = models.current && typeof models.current.provider === 'string'
-      && typeof models.current.model === 'string'
-      ? { provider: models.current.provider, model: models.current.model }
-      : null
-    const fixedFallback = draft.route || currentRoute || options[0] || null
+    const fixedFallback = draft.route || options[0] || null
 
     const save = async () => {
       if (!dirty || !writable || saving) return
@@ -1426,8 +1471,8 @@ module.exports = function createClientPlugin(React, options) {
       return Number.isSafeInteger(next) ? next : fallback
     }
 
-    const modelStatus = sessionId === undefined
-      ? copy.noModels
+    const modelStatus = !modelRequested
+      ? draft.route === null ? copy.modelsHint : copy.modelsSavedHint
       : models.status === 'loading'
       ? copy.loadingModels
       : models.status === 'error'
@@ -1435,6 +1480,7 @@ module.exports = function createClientPlugin(React, options) {
       : options.length === 0
       ? copy.noModels
       : null
+    const settingsUnavailable = snapshot.status === 'unavailable'
 
     return h('div', { className: 'dsh-pfm-settings-page' },
       h('header', { className: 'dsh-pfm-settings-panel-header' },
@@ -1443,6 +1489,10 @@ module.exports = function createClientPlugin(React, options) {
           h('p', { className: 'dsh-pfm-settings-description' }, copy.description)),
         dirty ? h('span', { className: 'dsh-pfm-settings-pending' }, copy.unsaved) : null),
       h('div', { className: 'dsh-pfm-settings-panel-body' },
+      settingsUnavailable ? h('p', {
+        className: 'dsh-pfm-settings-status dsh-pfm-settings-warning',
+        role: 'status',
+      }, copy.settingsUnavailable) : null,
       !writable ? h('p', { className: 'dsh-pfm-settings-status', role: 'status' }, copy.readOnly) : null,
       h('div', { className: 'dsh-pfm-settings-row' },
         h('div', { className: 'dsh-pfm-settings-copy' },
@@ -1456,30 +1506,61 @@ module.exports = function createClientPlugin(React, options) {
               className: 'dsh-pfm-settings-choice', 'data-selected': String(draft.route === null),
             }, h('input', {
               type: 'radio', name: 'dsh-pfm-model-route', checked: draft.route === null,
-              disabled: !writable, onChange: () => setDraft({ ...draft, route: null }),
+              disabled: !writable,
+              onChange: () => {
+                setCustomSelectionPending(false)
+                setDraft({ ...draft, route: null })
+              },
             }), h('strong', null, copy.defaultRoute), h('small', null, copy.defaultRouteHint)),
             h('label', {
               className: 'dsh-pfm-settings-choice', 'data-selected': String(draft.route !== null),
             }, h('input', {
               type: 'radio', name: 'dsh-pfm-model-route', checked: draft.route !== null,
-              disabled: !writable || fixedFallback === null,
-              onChange: () => fixedFallback && setDraft({
-                ...draft,
-                route: { provider: fixedFallback.provider, model: fixedFallback.model },
-              }),
+              disabled: !writable,
+              onChange: () => {
+                setModelRequested(true)
+                setCustomSelectionPending(true)
+                if (fixedFallback) setDraft({
+                  ...draft,
+                  route: { provider: fixedFallback.provider, model: fixedFallback.model },
+                })
+                void loadModels()
+              },
             }), h('strong', null, copy.customModel), h('small', null, copy.customModelHint))),
           draft.route !== null ? h('select', {
             className: 'dsh-pfm-settings-select', value: routeKey(draft.route), disabled: !writable,
             'aria-label': copy.model,
             onChange: (event) => {
               const selected = options.find((option) => routeKey(option) === event.target.value)
-              if (selected) setDraft({
-                ...draft, route: { provider: selected.provider, model: selected.model },
-              })
+              if (selected) {
+                setCustomSelectionPending(false)
+                setDraft({
+                  ...draft, route: { provider: selected.provider, model: selected.model },
+                })
+              }
             },
           }, options.map((option) => h('option', {
             key: routeKey(option), value: routeKey(option),
           }, `${option.providerLabel} · ${option.label}`))) : null,
+          !modelRequested && draft.route !== null ? h('button', {
+            type: 'button',
+            className: 'dsh-pfm-settings-button dsh-pfm-settings-model-refresh',
+            disabled: !writable,
+            onClick: () => {
+              setModelRequested(true)
+              setCustomSelectionPending(false)
+              void loadModels()
+            },
+          }, copy.refreshModels) : null,
+          modelRequested && models.status === 'error' ? h('button', {
+            type: 'button',
+            className: 'dsh-pfm-settings-button dsh-pfm-settings-model-refresh',
+            disabled: !writable,
+            onClick: () => {
+              setCustomSelectionPending(true)
+              void loadModels()
+            },
+          }, copy.retryModels) : null,
           modelStatus ? h('p', {
             className: 'dsh-pfm-settings-status',
             'data-error': String(models.status === 'error'), role: 'status',
@@ -1508,12 +1589,9 @@ module.exports = function createClientPlugin(React, options) {
                 ? 'Mod+Shift+Space' : 'disabled' })
             },
           }, draft.shortcut === 'disabled' ? copy.restoreShortcut : copy.disableShortcut))),
-      h('div', { className: 'dsh-pfm-settings-advanced' },
-        h('button', {
-          type: 'button', className: 'dsh-pfm-settings-advanced-toggle',
-          'aria-expanded': advanced, onClick: () => setAdvanced(!advanced),
-        }, advanced ? `⌃ ${copy.hideAdvanced}` : `⌄ ${copy.advanced}`),
-        advanced ? h(React.Fragment, null,
+      h('details', { className: 'dsh-pfm-settings-advanced' },
+        h('summary', { className: 'dsh-pfm-settings-advanced-toggle' }, copy.advanced),
+        h('div', { className: 'dsh-pfm-settings-advanced-body' },
           h('div', { className: 'dsh-pfm-settings-row' },
             h('div', { className: 'dsh-pfm-settings-copy' },
               h('span', { className: 'dsh-pfm-settings-label' }, copy.projectContext),
@@ -1594,7 +1672,7 @@ module.exports = function createClientPlugin(React, options) {
                 ...draft,
                 timeoutMs: integerInput(event, DEFAULT_USER_SETTINGS.timeoutMs) * 1000,
               }),
-            }))) : null),
+            })))),
       h('div', { className: 'dsh-pfm-settings-footer' },
         failed ? h('p', {
           className: 'dsh-pfm-settings-status', 'data-error': 'true', role: 'status',
@@ -1615,7 +1693,7 @@ module.exports = function createClientPlugin(React, options) {
   }
 
   return {
-    inject: ['modelDirectories', 'slots'],
+    inject: ['slots'],
     apply(ctx) {
       insertStyles()
       const slots = ctx.get('slots')
@@ -1664,12 +1742,11 @@ module.exports = function createClientPlugin(React, options) {
         iconName: 'prompt',
         Icon: SparklesIcon,
         renderIcon: () => React.createElement(SparklesIcon),
-      }, (props) => PromptForMeSettingsCard({
-        ...props,
+        inject: () => ({
           pfmSettingsScope: settingsScope,
           pfmSettingsStore: settingsStore,
-          pfmModelDirectories: ctx.get('modelDirectories'),
-      })))
+        }),
+      }, PromptForMeSettingsCard))
     },
     _testing: {
       activeCandidate,

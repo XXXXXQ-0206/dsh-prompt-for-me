@@ -36,10 +36,10 @@
   草稿为空时，它会设计下一步值得执行的工程动作，不会模仿用户语气，也不会生成闲聊。
 
 - **诚实的优化**  
-  保留原始 Prompt 的核心意图，不扩展成无关需求；优化结果中不会反问用户、要求用户补充细节。
+  以用户意图为准，保留原始 Prompt 的核心目标，不扩展成无关需求；优化结果中不会反问用户、要求用户补充细节。
 
 - **使用你当前选中的模型**  
-  复用输入框当前选择的 provider/model，并支持 Session 请求头与固定组合配置兜底。
+  复用输入框当前选择的 provider/model；若 Session 有 reasoning effort 也会一并复用，并支持 Session 请求头与固定组合配置兜底。
 
 - **流式且可控**  
   输出增量写入草稿；请求期间锁定输入；再次点击立即中断并恢复原始草稿；`Ctrl+Z` / `Ctrl+Y` 支持回退与重做。
@@ -67,13 +67,13 @@
 Release 包含预构建的 Host 与 Client 产物：
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.0/dsh-prompt-for-me-0.7.0.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.1/dsh-prompt-for-me-0.7.1.tgz
 ```
 
 也可以安装固定 Git 标签：
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.0
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.1
 ```
 
 安装后重启 `dsh web`。从 Git 安装时，pnpm 可能要求允许包的 `prepare` 脚本；它只复制 Host 文件并包装 Client factory。

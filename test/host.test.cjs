@@ -87,7 +87,7 @@ test('generate reuses the session route and sends bounded contextual JSON withou
   assert.equal(requests.length, 1)
   assert.equal(requests[0].provider, 'live-provider')
   assert.equal(requests[0].model, 'live-model')
-  assert.equal(requests[0].reasoningEffort, 'off')
+  assert.equal(requests[0].reasoningEffort, undefined)
   assert.equal(requests[0].tools, undefined)
   const framed = JSON.parse(requests[0].messages[0].content[0].text)
   assert.equal(framed.current.draft, 'Please inspect this.')
@@ -226,7 +226,7 @@ test('generate records token usage and privacy-safe stage metrics', async () => 
   assert.equal(result.ok, true)
   assert.equal(metrics.length, 1)
   assert.deepEqual(metrics[0].route, {
-    provider: 'live-provider', model: 'live-model', reasoningEffort: 'off',
+    provider: 'live-provider', model: 'live-model', reasoningEffort: null,
   })
   assert.deepEqual(metrics[0].usage, {
     inputTokens: 9000, totalInputTokens: 11000, outputTokens: 120,
@@ -315,6 +315,28 @@ test('a plugin-fixed model route overrides the live Session selection', async ()
   assert.equal(result.ok, true)
   assert.equal(requests[0].provider, 'fixed')
   assert.equal(requests[0].model, 'fixed-model')
+})
+
+test('the default route reuses the session reasoning effort', async () => {
+  const { ctx, requests } = contextWith(async function * () {
+    yield { type: 'text-delta', text: candidateLines('A') }
+  })
+  ctx.get('sessions').get('session-1').requestHeader = () => ({
+    config: {
+      provider: 'session-provider',
+      model: 'session-model',
+      reasoningEffort: 'high',
+    },
+  })
+  ctx.get('agentDefaultModel').currentSelection = () => undefined
+  const result = await host._testing.createGenerateHandler(ctx, resolveConfig({}))({
+    sessionId: 'session-1', draft: '', trigger: { kind: 'manual' },
+    currentCycleSkipped: [], localOutcomes: [],
+  })
+  assert.equal(result.ok, true)
+  assert.equal(requests[0].provider, 'session-provider')
+  assert.equal(requests[0].model, 'session-model')
+  assert.equal(requests[0].reasoningEffort, 'high')
 })
 
 test('Host settings register as live and preserve hidden product-owned limits', () => {
@@ -492,6 +514,45 @@ test('generate rejects stale sessions and accepts raw prompt output', async () =
   assert.equal(second.ok, true)
   assert.equal(second.candidate, 'not-json')
   assert.equal(requests.length, 1)
+})
+
+test('model catalog lists live providers without a session', async () => {
+  const llm = {
+    listProviders: () => [{ id: 'openrouter', name: 'OpenRouter' }],
+    listModels: async () => [{
+      id: 'thinkingmachines/inkling:free',
+      name: 'Inkling (free)',
+      description: 'Free test model',
+    }],
+    resolveModelInfo: async (provider, model) => ({
+      provider,
+      id: model,
+      name: 'Inkling (free)',
+      reasoning: {
+        efforts: [{ id: 'low', name: 'Low' }],
+        defaultEffort: 'low',
+      },
+    }),
+  }
+  const catalog = await host._testing.collectModelCatalog({
+    get: (name) => name === 'llm' ? llm : undefined,
+  })
+  assert.deepEqual(catalog, {
+    groups: [{
+      id: 'openrouter',
+      name: 'OpenRouter',
+      models: [{
+        id: 'thinkingmachines/inkling:free',
+        name: 'Inkling (free)',
+        description: 'Free test model',
+        reasoning: {
+          efforts: [{ id: 'low', name: 'Low' }],
+          defaultEffort: 'low',
+        },
+      }],
+    }],
+    failures: [],
+  })
 })
 
 test('generate reports a locally enforced model timeout', async () => {

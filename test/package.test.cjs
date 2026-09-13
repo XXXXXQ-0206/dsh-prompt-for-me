@@ -16,8 +16,7 @@ test('package declares an installable DSH bundle and web client', () => {
   assert.deepEqual(manifest.dsh.client.inject, [
     '@deepseek-ai/dsh-client-runtime',
     '@deepseek-ai/dsh-client-ui-conversation',
-    '@deepseek-ai/dsh-client-ui-model-selection',
-    '@deepseek-ai/dsh-client-ui-settings-plugins',
+    '@deepseek-ai/dsh-client-ui-settings-general',
   ])
   for (const name of manifest.dsh.client.inject) {
     assert.equal(manifest.peerDependenciesMeta[name].optional, true)

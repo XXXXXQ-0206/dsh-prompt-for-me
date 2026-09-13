@@ -324,7 +324,7 @@ test('the browser plugin registers native and fallback surfaces and accepts Host
   })
   await nextTask()
 
-  assert.deepEqual(plugin.inject, ['modelDirectories', 'slots'])
+  assert.deepEqual(plugin.inject, ['slots'])
   assert.deepEqual(injected, [
     'conversation.input.right', 'conversation.input.dock', 'settings.section',
   ])
