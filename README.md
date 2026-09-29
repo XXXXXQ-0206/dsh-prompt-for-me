@@ -64,16 +64,18 @@ Writing a good agent prompt is a design task, not a chat activity. The useful pr
 
 ## Install
 
+Version 0.8.0 targets DeepSeek Harness `0.2.x` (`0.2.0-rc.1` or newer).
+
 Release tarballs contain the prebuilt host and client artifacts:
 
 ```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.7.1/dsh-prompt-for-me-0.7.1.tgz
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.8.0/dsh-prompt-for-me.tgz
 ```
 
 You can also install a pinned Git tag:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.7.1
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.8.0
 ```
 
 Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.
