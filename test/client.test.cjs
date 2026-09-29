@@ -292,7 +292,7 @@ test('the browser plugin registers native and fallback surfaces and accepts Host
   const plugin = createClientPlugin(React, {
     rpc: async (method) => method === 'settings' ? {
       ok: true,
-      settings: { automatic: true, shortcut: 'Mod+Shift+Space', route: null },
+      settings: { automatic: true, shortcut: 'Mod+Shift+Space', route: null, reasoningEffort: 'off' },
       writable: true,
     } : ({
       ok: true,
@@ -373,7 +373,7 @@ test('disabling automatic suggestions cancels pending work and withdraws ghost t
 test('the plugin settings controller reads and replaces only its own three fields', async () => {
   browserStorage()
   let settings = {
-    automatic: true, shortcut: 'Mod+Shift+Space', route: null,
+    automatic: true, shortcut: 'Mod+Shift+Space', route: null, reasoningEffort: 'off',
     projectContextEnabled: true, projectContextDepth: 3,
     maxProjectTreeFiles: 100, maxProjectContextBytes: 16384,
     maxOutputTokens: 2048, timeoutMs: 30000,
@@ -399,6 +399,7 @@ test('the plugin settings controller reads and replaces only its own three field
     automatic: false,
     shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
+    reasoningEffort: 'max',
     projectContextEnabled: false,
     projectContextDepth: 2,
     maxProjectTreeFiles: 80,

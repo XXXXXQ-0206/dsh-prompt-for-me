@@ -39,6 +39,14 @@ test('resolveConfig supplies the three-tier defaults and rejects invalid limits 
   assert.equal(config.maxLocalOutcomesBytes, 131072)
   assert.equal(config.shortcut, 'Mod+Shift+Space')
   assert.equal(config.automatic, true)
+  const volatileConfig = core.resolveConfig({
+    automatic: { get: () => false },
+    maxProjectContextBytes: { get: () => 16384 },
+    reasoningEffort: { get: () => 'max' },
+  })
+  assert.equal(volatileConfig.automatic, false)
+  assert.equal(volatileConfig.maxProjectContextBytes, 16384)
+  assert.equal(volatileConfig.reasoningEffort, 'max')
   assert.throws(() => core.resolveConfig({ provider: 'deepseek' }), /configured together/)
   assert.throws(() => core.resolveConfig({ maxCurrentCycleSkipped: 0 }), /maxCurrentCycleSkipped/)
   assert.throws(() => core.resolveConfig({ maxCurrentCycleSkippedBytes: 100 }), /maxCurrentCycleSkippedBytes/)
@@ -60,6 +68,7 @@ test('user settings expose only automatic behavior, shortcut, and an atomic mode
     automatic: false,
     shortcut: 'Mod+Alt+K',
     route: { provider: 'profile-provider', model: 'profile-model' },
+    reasoningEffort: 'off',
     projectContextEnabled: true,
     projectContextDepth: 3,
     maxProjectTreeFiles: 100,
@@ -72,21 +81,25 @@ test('user settings expose only automatic behavior, shortcut, and an atomic mode
     automatic: true,
     shortcut: 'disabled',
     route: null,
+    reasoningEffort: 'max',
   })
   assert.equal(following.automatic, true)
   assert.equal(following.shortcut, 'disabled')
   assert.equal(following.provider, undefined)
   assert.equal(following.model, undefined)
+  assert.equal(following.reasoningEffort, 'max')
   assert.equal(following.timeoutMs, 9000)
 
   const fixed = core.applyUserSettings(baseConfig, {
     automatic: true,
     shortcut: ' Mod+Shift+Space ',
     route: { provider: ' fixed-provider ', model: ' fixed-model ' },
+    reasoningEffort: 'low',
   })
   assert.equal(fixed.shortcut, 'Mod+Shift+Space')
   assert.equal(fixed.provider, 'fixed-provider')
   assert.equal(fixed.model, 'fixed-model')
+  assert.equal(fixed.reasoningEffort, 'low')
   assert.throws(() => core.applyUserSettings(baseConfig, {
     automatic: true, shortcut: 'x', route: { provider: 'only-provider' },
   }), /provider\/model pair/)

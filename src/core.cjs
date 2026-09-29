@@ -31,12 +31,14 @@ const DEFAULT_CONFIG = Object.freeze({
   timeoutMs: 30000,
   shortcut: 'Mod+Shift+Space',
   automatic: true,
+  reasoningEffort: 'off',
 })
 
 const DEFAULT_USER_SETTINGS = Object.freeze({
   automatic: true,
   shortcut: 'Mod+Shift+Space',
   route: null,
+  reasoningEffort: 'off',
   projectContextEnabled: true,
   projectContextDepth: 3,
   maxProjectTreeFiles: 100,
@@ -52,8 +54,14 @@ function integer(name, value, minimum) {
   return value
 }
 
+function unwrapConfigValue(value) {
+  return value && typeof value.get === 'function' ? value.get() : value
+}
+
 function resolveConfig(input) {
-  const source = input && typeof input === 'object' ? input : {}
+  const source = input && typeof input === 'object'
+    ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, unwrapConfigValue(value)]))
+    : {}
   const config = {
     ...DEFAULT_CONFIG,
     ...source,
@@ -99,6 +107,9 @@ function resolveConfig(input) {
   if (typeof config.automatic !== 'boolean') {
     throw new TypeError('prompt-for-me: automatic must be a boolean')
   }
+  if (!['inherit', 'off', 'low', 'high', 'max'].includes(config.reasoningEffort)) {
+    throw new TypeError('prompt-for-me: reasoningEffort must be inherit, off, low, high, or max')
+  }
   if (typeof config.projectContextEnabled !== 'boolean') {
     throw new TypeError('prompt-for-me: projectContextEnabled must be a boolean')
   }
@@ -120,6 +131,7 @@ function userSettingsBase(config) {
     route: config.provider === undefined
       ? null
       : Object.freeze({ provider: config.provider, model: config.model }),
+    reasoningEffort: config.reasoningEffort,
     projectContextEnabled: config.projectContextEnabled,
     projectContextDepth: config.projectContextDepth,
     maxProjectTreeFiles: config.maxProjectTreeFiles,
@@ -135,6 +147,9 @@ function resolveUserSettings(input, fallback = DEFAULT_USER_SETTINGS) {
     automatic: source.automatic === undefined ? fallback.automatic : source.automatic,
     shortcut: source.shortcut === undefined ? fallback.shortcut : source.shortcut,
     route: source.route === undefined ? fallback.route : source.route,
+    reasoningEffort: source.reasoningEffort === undefined
+      ? fallback.reasoningEffort
+      : source.reasoningEffort,
     projectContextEnabled: source.projectContextEnabled === undefined
       ? fallback.projectContextEnabled
       : source.projectContextEnabled,
@@ -166,6 +181,9 @@ function resolveUserSettings(input, fallback = DEFAULT_USER_SETTINGS) {
       || typeof settings.route.model !== 'string' || settings.route.model.trim() === '')) {
     throw new TypeError('prompt-for-me settings: route must be null or a provider/model pair')
   }
+  if (!['inherit', 'off', 'low', 'high', 'max'].includes(settings.reasoningEffort)) {
+    throw new TypeError('prompt-for-me settings: reasoningEffort must be inherit, off, low, high, or max')
+  }
   if (typeof settings.projectContextEnabled !== 'boolean') {
     throw new TypeError('prompt-for-me settings: projectContextEnabled must be a boolean')
   }
@@ -189,6 +207,7 @@ function resolveUserSettings(input, fallback = DEFAULT_USER_SETTINGS) {
           provider: settings.route.provider.trim(),
           model: settings.route.model.trim(),
         }),
+    reasoningEffort: settings.reasoningEffort,
     projectContextEnabled: settings.projectContextEnabled,
     projectContextDepth: settings.projectContextDepth,
     maxProjectTreeFiles: settings.maxProjectTreeFiles,
@@ -204,6 +223,7 @@ function applyUserSettings(config, input) {
     ...config,
     automatic: settings.automatic,
     shortcut: settings.shortcut,
+    reasoningEffort: settings.reasoningEffort,
     projectContextEnabled: settings.projectContextEnabled,
     projectContextDepth: settings.projectContextDepth,
     maxProjectTreeFiles: settings.maxProjectTreeFiles,

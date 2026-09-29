@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
-const { mkdtemp, mkdir, writeFile, rm } = require('node:fs/promises')
+const { mkdtemp, mkdir, readFile, writeFile, rm } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const host = require('../src/index.cjs')
@@ -87,7 +87,7 @@ test('generate reuses the session route and sends bounded contextual JSON withou
   assert.equal(requests.length, 1)
   assert.equal(requests[0].provider, 'live-provider')
   assert.equal(requests[0].model, 'live-model')
-  assert.equal(requests[0].reasoningEffort, undefined)
+  assert.equal(requests[0].reasoningEffort, 'off')
   assert.equal(requests[0].tools, undefined)
   const framed = JSON.parse(requests[0].messages[0].content[0].text)
   assert.equal(framed.current.draft, 'Please inspect this.')
@@ -226,7 +226,7 @@ test('generate records token usage and privacy-safe stage metrics', async () => 
   assert.equal(result.ok, true)
   assert.equal(metrics.length, 1)
   assert.deepEqual(metrics[0].route, {
-    provider: 'live-provider', model: 'live-model', reasoningEffort: null,
+    provider: 'live-provider', model: 'live-model', reasoningEffort: 'off',
   })
   assert.deepEqual(metrics[0].usage, {
     inputTokens: 9000, totalInputTokens: 11000, outputTokens: 120,
@@ -336,77 +336,66 @@ test('the default route reuses the session reasoning effort', async () => {
   assert.equal(result.ok, true)
   assert.equal(requests[0].provider, 'session-provider')
   assert.equal(requests[0].model, 'session-model')
+  assert.equal(requests[0].reasoningEffort, 'off')
+})
+
+test('the inherit setting reuses the session reasoning effort', async () => {
+  const { ctx, requests } = contextWith(async function * () {
+    yield { type: 'text-delta', text: candidateLines('A') }
+  })
+  ctx.get('sessions').get('session-1').requestHeader = () => ({
+    config: { provider: 'session-provider', model: 'session-model', reasoningEffort: 'high' },
+  })
+  ctx.get('agentDefaultModel').currentSelection = () => undefined
+  await host._testing.createGenerateHandler(ctx, resolveConfig({ reasoningEffort: 'inherit' }))({
+    sessionId: 'session-1', draft: '', trigger: { kind: 'manual' },
+    currentCycleSkipped: [], localOutcomes: [],
+  })
   assert.equal(requests[0].reasoningEffort, 'high')
 })
 
-test('Host settings register as live and preserve hidden product-owned limits', () => {
-  let registered
-  let watcher
-  const scope = {
-    get: () => ({ automatic: false, shortcut: 'Mod+Alt+K', route: null }),
-    watch(callback) { watcher = callback; return () => {} },
-  }
-  const settings = {
-    register(namespace, schema, options) {
-      registered = { namespace, schema, options }
-      return scope
-    },
-  }
-  const applied = []
-  const ctx = {
-    get: (name) => name === 'settings' ? settings : undefined,
-    effect: (install) => install(),
-  }
+test('Host settings persist in the shared plugin store and preserve product-owned limits', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'prompt-for-me-settings-'))
   const base = resolveConfig({
     provider: 'profile', model: 'profile-model', timeoutMs: 4321,
   })
-  host._testing.registerSettings(ctx, base, (next) => applied.push(next))
+  const binding = host._testing.createSettingsBinding(home, base)
+  const first = await binding.read()
+  assert.equal(first.writable, true)
+  assert.equal(first.settings.automatic, true)
+  assert.equal(first.settings.reasoningEffort, 'off')
 
-  assert.equal(registered.namespace, 'prompt-for-me')
-  assert.equal(registered.options.applies, 'live')
-  assert.deepEqual(registered.options.base, {
-    automatic: true,
-    shortcut: 'Mod+Shift+Space',
-    route: { provider: 'profile', model: 'profile-model' },
-    projectContextEnabled: true,
-    projectContextDepth: 3,
-    maxProjectTreeFiles: 100,
-    maxProjectContextBytes: 16384,
-    maxOutputTokens: 2048,
-    timeoutMs: 4321,
-  })
-  assert.equal(applied[0].provider, undefined)
-  assert.equal(applied[0].timeoutMs, 4321)
-
-  watcher({
+  await binding.replace({
     automatic: true,
     shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
+    reasoningEffort: 'max',
+    timeoutMs: 4321,
   })
-  assert.equal(applied[1].automatic, true)
-  assert.equal(applied[1].shortcut, 'disabled')
-  assert.equal(applied[1].provider, 'fixed')
-  assert.equal(applied[1].model, 'fixed-model')
-  assert.equal(applied[1].timeoutMs, 4321)
-  assert.doesNotThrow(() => registered.options.validate({
-    automatic: true, shortcut: 'Mod+Shift+Space', route: null,
-  }))
+  const persisted = JSON.parse(await readFile(join(home, 'plugins', 'dsh-prompt-for-me', 'settings.json'), 'utf8'))
+  assert.equal(persisted.autoGenerate, undefined)
+  assert.deepEqual(persisted.route, { provider: 'fixed', model: 'fixed-model' })
+  assert.equal(persisted.reasoningEffort, 'max')
+  assert.equal(persisted.timeoutMs, 4321)
+  assert.equal((await binding.read()).settings.timeoutMs, 4321)
+  await rm(home, { recursive: true, force: true })
 })
 
 test('the plugin RPC reads and atomically replaces its Host settings section', async () => {
   let route
   let current = {
     automatic: true, shortcut: 'Mod+Shift+Space', route: null,
+    reasoningEffort: 'off',
     projectContextEnabled: true, projectContextDepth: 3,
     maxProjectTreeFiles: 100, maxProjectContextBytes: 16384,
     maxOutputTokens: 2048, timeoutMs: 30000,
   }
   const base = resolveConfig({ timeoutMs: 7654 })
   const binding = {
-    settings: { writable: true },
-    scope: {
-      get: () => current,
-      async replace(next) { current = next },
+    read() { return { settings: current, writable: true, revision: 1 } },
+    async replace(next) {
+      current = require('../src/core.cjs').resolveUserSettings(next, current)
+      return this.read()
     },
   }
   const ctx = {
@@ -443,11 +432,13 @@ test('the plugin RPC reads and atomically replaces its Host settings section', a
     ok: true,
     settings: current,
     writable: true,
+    revision: 1,
   })
   const next = {
     automatic: false,
     shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
+    reasoningEffort: 'max',
     projectContextEnabled: false,
     projectContextDepth: 2,
     maxProjectTreeFiles: 80,
@@ -459,12 +450,14 @@ test('the plugin RPC reads and atomically replaces its Host settings section', a
     ok: true,
     settings: next,
     writable: true,
+    revision: 1,
   })
   assert.deepEqual(current, next)
   const configuration = await call('configuration', {})
   assert.equal(configuration.automatic, false)
   assert.equal(configuration.shortcut, 'disabled')
   assert.deepEqual(configuration.route, next.route)
+  assert.equal(configuration.reasoningEffort, 'max')
 })
 
 test('generate publishes stream deltas before the model finishes', async () => {

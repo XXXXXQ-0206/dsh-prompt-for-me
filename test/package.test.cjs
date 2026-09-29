@@ -12,7 +12,6 @@ test('package declares an installable DSH bundle and web client', () => {
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert.equal(manifest.keywords.includes('dsh-plugin'), true)
-  assert.equal(manifest.dependencies['@deepseek-ai/schemastery'], '^3.18.4')
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh'], '>=0.2.0-rc.1 <0.3.0')
   assert.equal(manifest.peerDependenciesMeta['@deepseek-ai/dsh'].optional, true)
   assert.deepEqual(manifest.dsh.client.inject, [

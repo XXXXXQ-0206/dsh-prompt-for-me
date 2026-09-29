@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-for-me",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Prompt design assistant for DeepSeek Harness: designs next development prompts and optimizes current drafts with project context.",
   "type": "commonjs",
   "main": "lib/index.cjs",
@@ -37,9 +37,7 @@
       "platform": "web"
     }
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.4"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@deepseek-ai/dsh": ">=0.2.0-rc.1 <0.3.0",
     "@deepseek-ai/dsh-client-runtime": ">=0.2.0-rc.1 <0.3.0",

@@ -9,6 +9,7 @@ module.exports = function createClientPlugin(React, options) {
     automatic: Boolean(options && options.automatic === true),
     shortcut: 'Mod+Shift+Space',
     route: null,
+    reasoningEffort: 'off',
     projectContextEnabled: true,
     projectContextDepth: 3,
     maxProjectTreeFiles: 100,
@@ -30,6 +31,7 @@ module.exports = function createClientPlugin(React, options) {
     maxOutputTokens: 2048,
     timeoutMs: 30000,
     automatic: Boolean(options && options.automatic === true),
+    reasoningEffort: 'off',
   }
   let automaticPolicyReady = Boolean(options && typeof options.automatic === 'boolean')
   let configurationRequest = null
@@ -1245,6 +1247,9 @@ module.exports = function createClientPlugin(React, options) {
         ? source.shortcut
         : DEFAULT_USER_SETTINGS.shortcut,
       route,
+      reasoningEffort: ['inherit', 'off', 'low', 'high', 'max'].includes(source.reasoningEffort)
+        ? source.reasoningEffort
+        : DEFAULT_USER_SETTINGS.reasoningEffort,
       projectContextEnabled: typeof source.projectContextEnabled === 'boolean'
         ? source.projectContextEnabled
         : DEFAULT_USER_SETTINGS.projectContextEnabled,
@@ -1269,6 +1274,7 @@ module.exports = function createClientPlugin(React, options) {
   function sameUserSettings(left, right) {
     return left.automatic === right.automatic
       && left.shortcut === right.shortcut
+      && left.reasoningEffort === right.reasoningEffort
       && left.projectContextEnabled === right.projectContextEnabled
       && left.projectContextDepth === right.projectContextDepth
       && left.maxProjectTreeFiles === right.maxProjectTreeFiles
@@ -1318,6 +1324,8 @@ module.exports = function createClientPlugin(React, options) {
       defaultRoute: '默认路由', defaultRouteHint: '跟随输入框当前 Session 选择，Enter 发送用哪个就用哪个。',
       customModel: '自定义模型', customModelHint: '在 dsh 已提供的提供商中固定一个模型，所有 Session 都使用。',
       model: '选择模型',
+      reasoningTitle: '思考深度', reasoningHint: '默认关闭思考，优先最快返回；也可以跟随当前会话或固定档位。',
+      reasoningInherit: '跟随当前会话', reasoningOff: '不思考（最快）', reasoningLow: '低', reasoningHigh: '高', reasoningMax: '最高',
       noModels: '当前没有可用的模型目录。',
       modelsHint: '选择「自定义模型」后加载 dsh 模型列表。',
       modelsSavedHint: '已固定模型；如需使用 dsh 模型列表，请点击加载。',
@@ -1345,6 +1353,8 @@ module.exports = function createClientPlugin(React, options) {
       defaultRoute: 'Default route', defaultRouteHint: 'Follow the model selected in the current Session, exactly what Enter uses.',
       customModel: 'Custom model', customModelHint: 'Pin one model from the providers available in dsh; every Session uses it.',
       model: 'Select model',
+      reasoningTitle: 'Reasoning effort', reasoningHint: 'Reasoning is off by default for the fastest response. You can inherit the Session choice or pin an effort.',
+      reasoningInherit: 'Inherit Session', reasoningOff: 'Off (fastest)', reasoningLow: 'Low', reasoningHigh: 'High', reasoningMax: 'Max',
       noModels: 'No model directory is available right now.',
       modelsHint: 'Choose “Custom model” to load the dsh model list.',
       modelsSavedHint: 'A model is pinned. Load the dsh model list to choose another one.',
@@ -1565,6 +1575,21 @@ module.exports = function createClientPlugin(React, options) {
             className: 'dsh-pfm-settings-status',
             'data-error': String(models.status === 'error'), role: 'status',
           }, modelStatus) : null)),
+      h('div', { className: 'dsh-pfm-settings-row' },
+        h('span', { className: 'dsh-pfm-settings-copy' },
+          h('span', { className: 'dsh-pfm-settings-label' }, copy.reasoningTitle),
+          h('span', { className: 'dsh-pfm-settings-hint' }, copy.reasoningHint)),
+        h('select', {
+          className: 'dsh-pfm-settings-select', value: draft.reasoningEffort,
+          disabled: !writable, 'aria-label': copy.reasoningTitle,
+          onChange: (event) => setDraft({ ...draft, reasoningEffort: event.target.value }),
+        }, [
+          ['off', copy.reasoningOff],
+          ['inherit', copy.reasoningInherit],
+          ['low', copy.reasoningLow],
+          ['high', copy.reasoningHigh],
+          ['max', copy.reasoningMax],
+        ].map(([value, label]) => h('option', { key: value, value }, label)))),
       h('div', { className: 'dsh-pfm-settings-row' },
         h('span', { className: 'dsh-pfm-settings-copy' },
           h('span', { className: 'dsh-pfm-settings-label' }, copy.shortcut),
