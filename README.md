@@ -1,86 +1,67 @@
 # dsh-prompt-for-me
 
 <p align="center">
-  <a href="README.zh.md"><kbd>中文</kbd></a>
-  &nbsp;|&nbsp;
   <a href="README.md"><kbd>English</kbd></a>
+  &nbsp;|&nbsp;
+  <a href="README.zh-CN.md"><kbd>中文</kbd></a>
 </p>
 
-**A prompt design companion for DeepSeek Harness.**
+A prompt optimizer for the DeepSeek Harness (DSH) composer. It turns a non-empty draft into a clearer, more actionable instruction and places the result back in the composer for you to review.
 
-`dsh-prompt-for-me` sits beside the Harness composer and helps you turn a rough idea into a prompt that a coding agent can execute. It observes the current project as background, understands the intent behind your draft, and either optimizes that draft or designs the next worthwhile development step. The result is streamed directly into the composer, so you can review, undo, redo, and send it.
+## Project overview
 
-This is not an automatic ghost-text plugin. It never sends a message by itself.
+Prompt for Me runs inside a DSH Web session. It combines a locally bundled optimization prompt with the draft you enter, then calls the model route selected in DSH. The generated text streams into the composer; you decide whether to edit or send it.
 
-## Why
+The built-in prompt is a local template that identifies the assistant as a DeepSeek AI coding assistant. Prompt generation uses the model configured in DSH; the plugin does not call a separate prompt-optimization service.
 
-Writing a good agent prompt is a design task, not a chat activity. The useful prompt usually needs to know:
+## Features
 
-- what problem you are solving;
-- what the project already contains;
-- which file, command, or module is the right next target;
-- what behavior, output, edge cases, tests, or acceptance criteria are relevant;
-- which constraints must stay untouched.
+- **Optimize the current draft.** Preserve the task in your own words while making it clearer and easier for a coding agent to act on.
+- **Use your DSH model route.** By default, follow the provider and model selected for the current session. Settings can pin a provider/model available in DSH.
+- **Edit the optimization prompt.** Customize the prompt rules and few-shot section independently. Each section has a restore-default action, with an option to restore both.
+- **Add custom few-shot examples.** Configure either an original-prompt / optimized-prompt pair or a broad task hint / optimized task-instruction pair.
+- **Keep control of the composer.** Generated text is written to the draft for review; the plugin does not submit it automatically.
 
-`dsh-prompt-for-me` gathers that background and performs the design work in the current composer, without turning the project into a summary or an assistant reply.
+## Current scope
 
-## Highlights
+Prompt optimization is the active generation feature. It requires text in the composer. Empty-draft prompt design and project-context collection are retained in the codebase but currently disabled. Optimization sends the draft and the configured local prompt to the selected DSH model; it does not collect project files or session history.
 
-- **Two modes in one button**  
-  A non-empty draft becomes **优化提示词**. An empty draft becomes **设计提示词** when a project is open.
-
-- **Project-aware background**  
-  Uses the session `cwd`, a bounded file tree, key manifests, and recent git status/diff as context. The background is for understanding, never the final output.
-
-- **Prompt design, not prediction**  
-  When the draft is empty, it designs the next profitable engineering step. It does not imitate the user or produce casual conversational text.
-
-- **Honest optimization**  
-  The user's intent is the source of truth. It preserves the original prompt instead of expanding it into unrelated work, and never asks the user for missing details inside the optimized result.
-
-- **Uses your selected model**  
-  It calls the same provider/model selected in the composer and reuses the session reasoning effort when available, including fallbacks to the session request header and fixed composition configuration.
-
-- **Streamed, controlled editing**  
-  Output streams into the draft, input is locked during request, a second click cancels and restores the original draft, and `Ctrl+Z` / `Ctrl+Y` walk through the generated history.
-
-- **Privacy by default**  
-  Only bounded text is sent. Project paths, manifests, session history, and interaction memory are capped; credentials are redacted before the model call.
+The request goes to the provider/model selected in DSH (or the optional custom route in Prompt Assistant settings). The provider's own data-handling terms apply to that request.
 
 ## Usage
 
-1. Open a DeepSeek Harness web session in your project workspace.
-2. Click the icon between the context meter and the send button.
-3. If the composer has text, the button optimizes it. If it is empty, the button designs the next prompt.
-4. Review the streamed result, adjust it if needed, and send it like any other draft.
+1. Open a project session in DeepSeek Harness Web.
+2. Enter the task you want to improve in the composer.
+3. Click the Prompt Assistant button beside the composer actions.
+4. Review and edit the generated draft, then send it when ready.
 
 | Action | Result |
 | --- | --- |
-| Type a task, click **优化提示词** | The current prompt is optimized with project context. |
-| Open a project, leave the draft empty, click **设计提示词** | The next high-value development prompt is designed. |
-| Click again during generation | The request is aborted; the original draft is restored. |
-| `Ctrl+Z` / `Ctrl+Y` | Step backward/forward through the generated prompt history. |
-| Press Enter | Only the final visible draft is sent. |
+| Click Prompt Assistant with a non-empty draft | Streams an optimized instruction into the composer. |
+| Click again while generation is running | Cancels the current request. |
+| Press `Ctrl+Z` / `Ctrl+Y` in the composer | Moves backward or forward through generated draft history. |
+| Use Enter after reviewing | Sends the visible composer draft through DSH. |
 
-## Install
+An empty draft does not start prompt generation while prompt design is disabled.
 
-Version 0.9.1 targets DeepSeek Harness `0.2.x` (`0.2.0-rc.1` or newer).
+## Installation
 
-Release tarballs contain the prebuilt host and client artifacts:
+Version 1.0.0 targets DeepSeek Harness `0.2.x` (`0.2.0-rc.1` or newer).
 
-```sh
-dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v0.9.1/dsh-prompt-for-me.tgz
-```
-
-You can also install a pinned Git tag:
+Install a versioned package archive from this repository's GitHub Releases page:
 
 ```sh
-dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v0.9.1
+dsh plugin --profile web add https://github.com/XXXXXQ-0206/dsh-prompt-for-me/releases/download/v1.0.0/dsh-prompt-for-me-1.0.0.tgz
+dsh web
 ```
 
-Restart `dsh web` after installation. For Git installations, pnpm may ask you to allow the package `prepare` script; it only copies the host files and wraps the client factory.
+For a fork or a later release, replace the owner, tag, and version with the matching values. A pinned Git source can also be installed with:
 
-Update or remove:
+```sh
+dsh plugin --profile web add github:XXXXXQ-0206/dsh-prompt-for-me#v1.0.0
+```
+
+Restart `dsh web` after installation or update.
 
 ```sh
 dsh plugin --profile web update dsh-prompt-for-me
@@ -89,40 +70,83 @@ dsh plugin --profile web remove dsh-prompt-for-me
 
 ## Settings
 
-Open **Settings → Prompt for Me / Prompt 嘴替**. The entry appears directly in the settings sidebar, beside **Session Recycle Bin**.
+Open **Settings → Prompt Assistant**.
 
-- **Model route**  
-  Choose **Default route** to follow the model selected in the current Session, or **Custom model** to pin a provider/model from dsh's available catalog for all Sessions.
-- **Reasoning effort** defaults to **Off (fastest)**. It no longer inherits the Session reasoning depth unless you explicitly choose **Inherit Session**.
-- **Manual generation shortcut** defaults to `Mod+Shift+Space`.
-- **More customization** exposes project-context scanning, scan depth, max project files, max project context, max output tokens, and request timeout.
+- **Model route:** follow the current session by default, or choose a provider/model from the DSH catalog and pin it for the plugin.
+- **Generation mode:** defaults to **Fastest (no reasoning)**; choose a deeper effort only when the rewrite benefits from more analysis.
+- **Optimization prompt:** edit the default instruction and few-shot example separately. Restore either section individually or restore both defaults.
+- **Custom few-shot examples:** add, edit, enable, disable, or remove examples. Each example can be an original prompt paired with an optimized prompt, or a broad task hint paired with an optimized task instruction. Up to 16 examples can be saved.
+- **Advanced generation limits:** set the maximum output-token count and request timeout.
 
-The product owns context budgets, memory, model output limits, and timeouts; users are not asked to tune these internals.
+Project-context controls are hidden while project-context collection is disabled.
 
-## Architecture
+## Build instructions
 
-The package is one dsh bundle with a host half and a browser half:
+Requirements: Node.js 22.19 or newer.
 
-```text
-src/index.cjs              Host entry: session events, project context, model routing, NDJSON RPC
-src/core.cjs               Bounded prompt input, redaction, memory, and mode-aware system instructions
-src/client-factory.cjs     Browser half: composer button, stream handling, lock/interrupt/undo
-cordis.patch.yml           Bundle patch for the Web profile
-lib/                       Generated host/client artifacts
+```sh
+npm ci
+npm run build
+npm test
 ```
 
-The browser calls `/dsh-prompt-for-me/rpc` over NDJSON. The host collects project evidence, keeps every text field bounded, calls the currently selected `ctx.llm` route, and streams deltas plus a final candidate back to the composer.
-
-## Development
-
-Requires Node.js 22.19 or newer.
+Run the complete local check before proposing a change:
 
 ```sh
 npm run check
 ```
 
-This rebuilds static artifacts, runs the test suite, and verifies the package contents.
+`npm run check` rebuilds the generated files, runs the test suite, and checks the package contents with `npm pack --dry-run`.
+
+## Project structure
+
+```text
+src/index.cjs              DSH host integration, model routing, and RPC
+src/core.cjs               Prompt assembly, settings, and bounded request data
+src/optimizer-template.cjs Local default optimization prompt and few-shot section
+src/client-factory.cjs     Composer button and settings interface
+src/features.cjs           Feature switches for archived capabilities
+cordis.patch.yml           DSH Web profile bundle configuration
+scripts/build.mjs          Build host and client artifacts
+lib/                       Generated package artifacts
+```
+
+## Contributing
+
+Bug reports and focused pull requests are welcome. Before opening a pull request:
+
+1. Describe the user-visible problem and the expected behavior.
+2. Keep changes focused and include or update relevant tests.
+3. Run `npm run check` and include the result in the pull request.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) for project policies.
+
+## FAQ
+
+**Why does an empty composer draft do nothing?**
+
+Empty-draft prompt design is currently disabled. Enter a draft before using Prompt for Me.
+
+**Does this plugin send project files to the model?**
+
+The active optimization path sends the composer draft and the configured prompt. Project-context collection is currently disabled.
+
+**Which model generates the result?**
+
+The current DSH session's selected model by default. You can pin a DSH provider/model in Prompt for Me settings.
+
+**Can I change the default prompt?**
+
+Yes. The prompt rules, template few-shot section, and custom few-shot examples can be edited in settings. Restore-default controls are available for the two template sections.
 
 ## License
 
-MIT
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+## Copyright and template attribution
+
+The default prompt template is derived from Trae and adapted for this plugin. Its assistant identity and integration have been modified for this project. This attribution does not imply endorsement or affiliation.
+
+## Disclaimer
+
+This software is provided **“AS IS”**, without warranties or guarantees of any kind. To the fullest extent permitted by applicable law, the authors and contributors are not liable for any direct, indirect, incidental, special, exemplary, or consequential damages arising from the use of this software. You use it at your own risk and are responsible for complying with applicable laws and provider terms. Do not use this software for unlawful purposes.

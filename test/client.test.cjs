@@ -292,11 +292,10 @@ test('the browser plugin registers native and fallback surfaces and accepts Host
   const plugin = createClientPlugin(React, {
     rpc: async (method) => method === 'settings' ? {
       ok: true,
-      settings: { automatic: true, shortcut: 'Mod+Shift+Space', route: null, reasoningEffort: 'off' },
+      settings: { automatic: true, route: null, reasoningEffort: 'off' },
       writable: true,
     } : ({
       ok: true,
-      shortcut: 'disabled',
       automatic: true,
       maxCurrentCycleSkipped: 7,
       maxCurrentCycleSkippedBytes: 2048,
@@ -370,13 +369,14 @@ test('disabling automatic suggestions cancels pending work and withdraws ghost t
   assert.equal(plugin._testing.storeFor('s1').presentation, 'draft')
 })
 
-test('the plugin settings controller reads and replaces only its own three fields', async () => {
+test('the plugin settings controller reads and replaces its own settings', async () => {
   browserStorage()
   let settings = {
-    automatic: true, shortcut: 'Mod+Shift+Space', route: null, reasoningEffort: 'off',
+    automatic: true, route: null, reasoningEffort: 'off',
     projectContextEnabled: true, projectContextDepth: 3,
     maxProjectTreeFiles: 100, maxProjectContextBytes: 16384,
-    maxOutputTokens: 2048, timeoutMs: 30000,
+    maxOutputTokens: 2048, timeoutMs: 30000, fewShots: [],
+    optimizerPrompt: '', optimizerFewShot: '',
   }
   const calls = []
   const plugin = createClientPlugin(React, {
@@ -397,7 +397,6 @@ test('the plugin settings controller reads and replaces only its own three field
 
   const next = {
     automatic: false,
-    shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
     reasoningEffort: 'max',
     projectContextEnabled: false,
@@ -406,6 +405,9 @@ test('the plugin settings controller reads and replaces only its own three field
     maxProjectContextBytes: 8192,
     maxOutputTokens: 1024,
     timeoutMs: 15000,
+    fewShots: [],
+    optimizerPrompt: '',
+    optimizerFewShot: '',
   }
   await controller.replace(next)
   assert.deepEqual(controller.getSnapshot().value, next)
@@ -413,6 +415,32 @@ test('the plugin settings controller reads and replaces only its own three field
     { method: 'settings', args: {} },
     { method: 'update-settings', args: { settings: next } },
   ])
+})
+
+test('client settings normalization keeps at most sixteen valid few-shots', () => {
+  browserStorage()
+  const plugin = createClientPlugin(React, { rpc: async () => ({ ok: true }) })
+  const fewShots = Array.from({ length: 20 }, (_, index) => index % 2 === 0
+    ? {
+        id: `rewrite-${index}`,
+        type: 'rewrite',
+        enabled: index !== 2,
+        input: `input-${index}`,
+        output: `output-${index}`,
+      }
+    : {
+        id: `task-${index}`,
+        type: 'task',
+        enabled: index !== 3,
+        hint: `hint-${index}`,
+        output: `output-${index}`,
+      })
+  const normalized = plugin._testing.normalizeUserSettings({ fewShots })
+  assert.equal(normalized.fewShots.length, 16)
+  assert.equal(normalized.fewShots[0].enabled, true)
+  assert.equal(normalized.fewShots[2].enabled, false)
+  assert.equal(normalized.fewShots[3].enabled, false)
+  assert.equal(normalized.fewShots[15].id, 'task-15')
 })
 
 test('each accepted trigger requests one suggestion with the skipped cycle so far', async () => {
@@ -881,26 +909,6 @@ test('manual and edited submissions record provenance once per submission transi
   ])
 })
 
-test('the portable shortcut accepts exactly one platform modifier', () => {
-  browserStorage()
-  const plugin = createClientPlugin(React, { rpc: async () => ({ ok: true }) })
-  const matches = plugin._testing.shortcutMatches
-  assert.equal(matches({ key: ' ', code: 'Space', shiftKey: true, metaKey: true, ctrlKey: false, altKey: false }), true)
-  assert.equal(matches({ key: ' ', code: 'Space', shiftKey: true, metaKey: true, ctrlKey: false, altKey: false, repeat: true }), false)
-  assert.equal(matches({ key: ' ', code: 'Space', shiftKey: true, metaKey: false, ctrlKey: true, altKey: false }), true)
-  assert.equal(matches({ key: ' ', code: 'Space', shiftKey: true, metaKey: true, ctrlKey: true, altKey: false }), false)
-  assert.equal(matches({ key: ' ', code: 'Space', shiftKey: false, metaKey: true, ctrlKey: false, altKey: false }), false)
-  assert.equal(matches({
-    key: 'K', code: 'KeyK', shiftKey: false, metaKey: false, ctrlKey: true, altKey: true,
-  }, 'Mod+Alt+K'), true)
-  assert.equal(plugin._testing.shortcutFromEvent({
-    key: 'k', code: 'KeyK', shiftKey: false, metaKey: true, ctrlKey: false, altKey: true,
-  }), 'Mod+Alt+K')
-  assert.equal(plugin._testing.shortcutFromEvent({
-    key: 'k', code: 'KeyK', shiftKey: true, metaKey: false, ctrlKey: false, altKey: false,
-  }), undefined)
-})
-
 test('hover text is concise, localized, and state-specific', () => {
   browserStorage()
   Object.defineProperty(global, 'navigator', {
@@ -908,12 +916,12 @@ test('hover text is concise, localized, and state-specific', () => {
   })
   const plugin = createClientPlugin(React, { generate: async () => ({ ok: false }) })
   const store = plugin._testing.storeFor('s1')
-  assert.equal(plugin._testing.tooltipText(store, true), '生成下一句（⌘⇧Space）')
+  assert.equal(plugin._testing.tooltipText(store, true), '生成下一句')
   store.phase = 'loading'
   assert.equal(plugin._testing.tooltipText(store, true), '正在生成…')
   store.phase = 'ready'
   store.candidate = 'A'
-  assert.equal(plugin._testing.tooltipText(store, true), '换一条（⌘⇧Space）')
+  assert.equal(plugin._testing.tooltipText(store, true), '换一条')
   store.phase = 'error'
   assert.equal(plugin._testing.tooltipText(store, false), 'Generation failed. Click to retry')
 })
@@ -957,6 +965,36 @@ test('a second manual click interrupts the stream and restores the original draf
   assert.equal(store.phase, 'idle')
   release()
   await request
+  assert.equal(draft, 'original')
+})
+
+test('a stalled generation request exits loading after the configured timeout', async () => {
+  browserStorage()
+  let aborted = false
+  const plugin = createClientPlugin(React, {
+    timeoutMs: 20,
+    generate: async (_args, _onCandidate, signal) => {
+      await new Promise((resolve) => {
+        if (signal.aborted) {
+          aborted = true
+          resolve()
+          return
+        }
+        signal.addEventListener('abort', () => {
+          aborted = true
+          resolve()
+        }, { once: true })
+      })
+      return { ok: false }
+    },
+  })
+  let draft = 'original'
+  await plugin._testing.trigger('s1', draft, { setDraft: (value) => { draft = value } })
+  const store = plugin._testing.storeFor('s1')
+  assert.equal(aborted, true)
+  assert.equal(store.pending, false)
+  assert.equal(store.phase, 'error')
+  assert.equal(store.error, 'Prompt for Me timed out.')
   assert.equal(draft, 'original')
 })
 

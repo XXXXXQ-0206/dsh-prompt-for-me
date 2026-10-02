@@ -29,7 +29,7 @@ function outcome(sessionId, action, origin, originalText, finalText) {
 }
 
 test('resolveConfig supplies the three-tier defaults and rejects invalid limits and routes', () => {
-  const config = core.resolveConfig({})
+  const config = core.resolveConfig({ shortcut: 'Mod+Shift+Space' })
   assert.equal(config.maxCurrentCycleSkipped, 10)
   assert.equal(config.maxCurrentCycleSkippedBytes, 16384)
   assert.equal(config.maxCurrentTurns, 3)
@@ -37,7 +37,7 @@ test('resolveConfig supplies the three-tier defaults and rejects invalid limits 
   assert.equal(config.maxCurrentFeedbackBytes, 4096)
   assert.equal(config.maxPreferenceMemoryBytes, 8192)
   assert.equal(config.maxLocalOutcomesBytes, 131072)
-  assert.equal(config.shortcut, 'Mod+Shift+Space')
+  assert.equal(Object.prototype.hasOwnProperty.call(config, 'shortcut'), false)
   assert.equal(config.automatic, true)
   const volatileConfig = core.resolveConfig({
     automatic: { get: () => false },
@@ -56,17 +56,26 @@ test('resolveConfig supplies the three-tier defaults and rejects invalid limits 
   assert.throws(() => core.resolveConfig({ automatic: 'yes' }), /automatic/)
 })
 
-test('user settings expose only automatic behavior, shortcut, and an atomic model route', () => {
+test('resolveConfig loads curated few-shots separately from user settings', () => {
+  const config = core.resolveConfig({})
+  assert.ok(config.defaultFewShots.length > 0)
+  assert.ok(config.defaultFewShots.length <= 16)
+  assert.ok(config.defaultFewShots.every((item) => item.enabled === true))
+  assert.ok(config.defaultFewShots.some((item) => item.type === 'rewrite'))
+  assert.ok(config.defaultFewShots.some((item) => item.type === 'task'))
+  assert.deepEqual(core.userSettingsBase(config).fewShots, [])
+})
+
+test('user settings expose automatic behavior and an atomic model route', () => {
   const baseConfig = core.resolveConfig({
     automatic: false,
-    shortcut: 'Mod+Alt+K',
     provider: 'profile-provider',
     model: 'profile-model',
     timeoutMs: 9000,
+    fewShots: [],
   })
   assert.deepEqual(core.userSettingsBase(baseConfig), {
     automatic: false,
-    shortcut: 'Mod+Alt+K',
     route: { provider: 'profile-provider', model: 'profile-model' },
     reasoningEffort: 'off',
     projectContextEnabled: true,
@@ -75,16 +84,18 @@ test('user settings expose only automatic behavior, shortcut, and an atomic mode
     maxProjectContextBytes: 16384,
     maxOutputTokens: 2048,
     timeoutMs: 9000,
+    fewShots: [],
+    optimizerPrompt: '',
+    optimizerFewShot: '',
   })
 
   const following = core.applyUserSettings(baseConfig, {
     automatic: true,
-    shortcut: 'disabled',
     route: null,
     reasoningEffort: 'max',
   })
   assert.equal(following.automatic, true)
-  assert.equal(following.shortcut, 'disabled')
+  assert.equal(Object.prototype.hasOwnProperty.call(following, 'shortcut'), false)
   assert.equal(following.provider, undefined)
   assert.equal(following.model, undefined)
   assert.equal(following.reasoningEffort, 'max')
@@ -92,16 +103,15 @@ test('user settings expose only automatic behavior, shortcut, and an atomic mode
 
   const fixed = core.applyUserSettings(baseConfig, {
     automatic: true,
-    shortcut: ' Mod+Shift+Space ',
     route: { provider: ' fixed-provider ', model: ' fixed-model ' },
     reasoningEffort: 'low',
   })
-  assert.equal(fixed.shortcut, 'Mod+Shift+Space')
+  assert.equal(Object.prototype.hasOwnProperty.call(fixed, 'shortcut'), false)
   assert.equal(fixed.provider, 'fixed-provider')
   assert.equal(fixed.model, 'fixed-model')
   assert.equal(fixed.reasoningEffort, 'low')
   assert.throws(() => core.applyUserSettings(baseConfig, {
-    automatic: true, shortcut: 'x', route: { provider: 'only-provider' },
+    automatic: true, route: { provider: 'only-provider' },
   }), /provider\/model pair/)
 })
 
@@ -241,6 +251,40 @@ test('buildSuggestionInput separates current context, session feedback, and pref
     'manualPrompts', 'editedSuggestions', 'acceptedExact', 'rejectedSuggestions',
   ])
   assert.deepEqual(input.currentCycleSkipped, ['Already shown'])
+})
+
+test('buildSuggestionInput includes enabled user and curated few-shots within the shared bound', () => {
+  const config = core.resolveConfig({
+    defaultFewShots: [
+      { id: 'curated-disabled', type: 'task', enabled: false, hint: 'skip me', output: 'skip me' },
+      { id: 'curated-enabled', type: 'task', enabled: true, hint: 'curated hint', output: 'curated output' },
+    ],
+    fewShots: [
+      { id: 'user-enabled', type: 'rewrite', enabled: true, input: 'user input', output: 'user output' },
+      { id: 'user-disabled', type: 'rewrite', enabled: false, input: 'disabled input', output: 'disabled output' },
+    ],
+  })
+  const input = core.buildSuggestionInput({
+    sessionId: 'current', draft: 'current request', currentCycleSkipped: [],
+  }, [], [], config)
+  assert.deepEqual(input.fewShots.map(({ id }) => id), ['user-enabled', 'curated-enabled'])
+
+  const bounded = core.resolveConfig({
+    defaultFewShots: [],
+    fewShots: Array.from({ length: 8 }, (_, index) => ({
+      id: `large-${index + 1}`,
+      type: 'task',
+      enabled: true,
+      hint: `hint-${index + 1}`,
+      output: 'x'.repeat(4096),
+    })),
+  })
+  const boundedInput = core.buildSuggestionInput({
+    sessionId: 'current', draft: 'current request', currentCycleSkipped: [],
+  }, [], [], bounded)
+  assert.ok(boundedInput.fewShots.length <= 8)
+  assert.ok(Buffer.byteLength(JSON.stringify(boundedInput.fewShots), 'utf8') <= 16 * 1024)
+  assert.equal(boundedInput.fewShots[0].id, 'large-1')
 })
 
 test('history selection favors the newest sessions and respects the manual-prompt cap', () => {

@@ -7,7 +7,6 @@ module.exports = function createClientPlugin(React, options) {
   const TRIGGER_COALESCE_MS = 250
   const DEFAULT_USER_SETTINGS = Object.freeze({
     automatic: Boolean(options && options.automatic === true),
-    shortcut: 'Mod+Shift+Space',
     route: null,
     reasoningEffort: 'off',
     projectContextEnabled: true,
@@ -15,11 +14,15 @@ module.exports = function createClientPlugin(React, options) {
     maxProjectTreeFiles: 100,
     maxProjectContextBytes: 16384,
     maxOutputTokens: 2048,
-    timeoutMs: 30000,
+    timeoutMs: Number.isSafeInteger(options && options.timeoutMs) && options.timeoutMs > 0
+      ? options.timeoutMs
+      : 30000,
+    fewShots: [],
+    optimizerPrompt: '',
+    optimizerFewShot: '',
   })
   const stores = new Map()
   const config = {
-    shortcut: 'Mod+Shift+Space',
     maxCurrentCycleSkipped: 10,
     maxCurrentCycleSkippedBytes: 16384,
     maxLocalOutcomes: 50,
@@ -29,9 +32,14 @@ module.exports = function createClientPlugin(React, options) {
     maxProjectTreeFiles: 100,
     maxProjectContextBytes: 16384,
     maxOutputTokens: 2048,
-    timeoutMs: 30000,
+    timeoutMs: Number.isSafeInteger(options && options.timeoutMs) && options.timeoutMs > 0
+      ? options.timeoutMs
+      : 30000,
     automatic: Boolean(options && options.automatic === true),
     reasoningEffort: 'off',
+    // Archived features. The Host ships the authoritative flags with the
+    // settings snapshot; the optimistic defaults keep an older Host working.
+    features: { projectContext: true, prediction: true },
   }
   let automaticPolicyReady = Boolean(options && typeof options.automatic === 'boolean')
   let configurationRequest = null
@@ -128,7 +136,7 @@ module.exports = function createClientPlugin(React, options) {
 
   function createSettingsController() {
     let snapshot = {
-      status: 'loading', value: undefined, revision: 0, writable: false,
+      status: 'loading', value: undefined, revision: 0, writable: false, defaults: null,
     }
     let generation = 0
     let tail = Promise.resolve()
@@ -144,6 +152,7 @@ module.exports = function createClientPlugin(React, options) {
         value: normalizeUserSettings(result.settings),
         revision: snapshot.revision + 1,
         writable: result.writable === true,
+        defaults: result.defaults || snapshot.defaults || null,
       })
       return true
     }
@@ -371,7 +380,9 @@ module.exports = function createClientPlugin(React, options) {
   }
 
   function beginManualStream(store, draft) {
-    store.mode = draft.trim() === '' ? 'predict' : 'optimize'
+    store.mode = config.features.prediction !== false && draft.trim() === ''
+      ? 'predict'
+      : 'optimize'
     store.streamingText = ''
     store.streamCandidate = undefined
     store.streamOriginal = draft
@@ -567,29 +578,46 @@ module.exports = function createClientPlugin(React, options) {
     store.controller = controller
     emit(store)
     let result
+    let timedOut = false
+    let timeoutTimer
+    const timeoutMs = Number.isSafeInteger(config.timeoutMs) && config.timeoutMs > 0
+      ? config.timeoutMs
+      : 30000
+    const generation = Promise.resolve().then(() => streamGenerate({
+      sessionId,
+      draft: store.sourceDraft,
+      mode: store.mode,
+      trigger: triggerKind,
+      currentCycleSkipped: [...store.currentCycleSkipped],
+      localOutcomes: readOutcomes(),
+    }, async (candidate) => {
+      if (seq !== store.requestSeq || controller.signal.aborted
+        || typeof candidate !== 'string' || candidate.trim() === '') return
+      if (kind === 'manual') store.streamCandidate = candidate.trim()
+      else showCandidate(sessionId, store, actions, candidate.trim(), kind)
+    }, controller.signal, async (text) => {
+      if (seq !== store.requestSeq || controller.signal.aborted
+        || typeof text !== 'string' || text === '' || kind !== 'manual') return
+      appendManualStream(store, actions, text)
+    }))
     try {
-      result = await streamGenerate({
-        sessionId,
-        draft: store.sourceDraft,
-        mode: store.mode,
-        trigger: triggerKind,
-        currentCycleSkipped: [...store.currentCycleSkipped],
-        localOutcomes: readOutcomes(),
-      }, async (candidate) => {
-        if (seq !== store.requestSeq || controller.signal.aborted
-          || typeof candidate !== 'string' || candidate.trim() === '') return
-        if (kind === 'manual') store.streamCandidate = candidate.trim()
-        else showCandidate(sessionId, store, actions, candidate.trim(), kind)
-      }, controller.signal, async (text) => {
-        if (seq !== store.requestSeq || controller.signal.aborted
-          || typeof text !== 'string' || text === '' || kind !== 'manual') return
-        appendManualStream(store, actions, text)
-      })
+      result = await Promise.race([
+        generation,
+        new Promise((resolve) => {
+          timeoutTimer = setTimeout(() => {
+            timedOut = true
+            controller.abort()
+            resolve({ ok: false, message: 'Prompt for Me timed out.' })
+          }, timeoutMs)
+        }),
+      ])
     } catch (error) {
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted && !timedOut) return
       result = { ok: false, message: 'Prompt for Me could not reach the Harness Host.' }
+    } finally {
+      clearTimeout(timeoutTimer)
     }
-    if (seq !== store.requestSeq || controller.signal.aborted) return
+    if (seq !== store.requestSeq || (controller.signal.aborted && !timedOut)) return
     store.pending = false
     store.generationKind = null
     store.controller = null
@@ -700,7 +728,6 @@ module.exports = function createClientPlugin(React, options) {
   function applyConfiguration(result) {
     if (!result || result.ok !== true) return false
     const automaticWasEnabled = config.automatic
-    if (typeof result.shortcut === 'string') config.shortcut = result.shortcut
     if (typeof result.automatic === 'boolean') config.automatic = result.automatic
     if (typeof result.projectContextEnabled === 'boolean') {
       config.projectContextEnabled = result.projectContextEnabled
@@ -719,6 +746,9 @@ module.exports = function createClientPlugin(React, options) {
     if (Number.isSafeInteger(result.maxLocalOutcomesBytes)
       && result.maxLocalOutcomesBytes >= 256) {
       config.maxLocalOutcomesBytes = result.maxLocalOutcomesBytes
+    }
+    if (Number.isSafeInteger(result.timeoutMs) && result.timeoutMs > 0) {
+      config.timeoutMs = result.timeoutMs
     }
     automaticPolicyReady = true
     for (const store of stores.values()) {
@@ -894,73 +924,11 @@ module.exports = function createClientPlugin(React, options) {
     if (stateChanged) emit(store)
   }
 
-  function shortcutKey(event) {
-    if (event.key === ' ' || event.code === 'Space') return 'Space'
-    if (typeof event.key !== 'string' || event.key === '') return undefined
-    if (/^[a-z0-9]$/i.test(event.key)) return event.key.toUpperCase()
-    const supported = new Set([
-      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown',
-      ',', '.', '/', ';', "'", '[', ']', '\\', '-', '=', '`',
-    ])
-    return supported.has(event.key) ? event.key : undefined
-  }
-
-  function shortcutFromEvent(event) {
-    if (!event || event.isComposing || event.repeat) return undefined
-    const key = shortcutKey(event)
-    if (key === undefined) return undefined
-    const mod = Boolean(event.metaKey) !== Boolean(event.ctrlKey)
-    if (!mod && !event.altKey) return undefined
-    return [
-      ...(mod ? ['Mod'] : []),
-      ...(!mod && event.ctrlKey ? ['Ctrl'] : []),
-      ...(!mod && event.metaKey ? ['Meta'] : []),
-      ...(event.altKey ? ['Alt'] : []),
-      ...(event.shiftKey ? ['Shift'] : []),
-      key,
-    ].join('+')
-  }
-
-  function shortcutMatches(event, shortcut = config.shortcut) {
-    if (shortcut === 'disabled' || event.repeat === true) return false
-    const parts = shortcut.split('+')
-    const key = parts.pop()
-    const required = new Set(parts)
-    const mod = Boolean(event.metaKey) !== Boolean(event.ctrlKey)
-    return shortcutKey(event) === key
-      && mod === required.has('Mod')
-      && (!mod && Boolean(event.ctrlKey)) === required.has('Ctrl')
-      && (!mod && Boolean(event.metaKey)) === required.has('Meta')
-      && Boolean(event.altKey) === required.has('Alt')
-      && Boolean(event.shiftKey) === required.has('Shift')
-  }
-
   function isChinese() {
     try {
       return document.documentElement.lang.toLowerCase().startsWith('zh')
     } catch {
       return false
-    }
-  }
-
-  function shortcutDisplay(shortcut = config.shortcut) {
-    if (shortcut === 'disabled') return ''
-    try {
-      const platform = navigator.userAgentData && navigator.userAgentData.platform
-        ? navigator.userAgentData.platform
-        : navigator.platform
-      if (/Mac|iPhone|iPad|iPod/i.test(platform)) {
-        return shortcut
-          .replace(/Mod\+/g, '⌘')
-          .replace(/Ctrl\+/g, '⌃')
-          .replace(/Meta\+/g, '⌘')
-          .replace(/Alt\+/g, '⌥')
-          .replace(/Shift\+/g, '⇧')
-      }
-      return shortcut.replace(/Mod\+/g, 'Ctrl+')
-    } catch {
-      return shortcut
     }
   }
 
@@ -975,9 +943,7 @@ module.exports = function createClientPlugin(React, options) {
       : activeCandidate(store) === undefined
       ? (zh ? '生成下一句' : 'Generate next message')
       : (zh ? '换一条' : 'Try another')
-    const shortcut = shortcutDisplay()
-    if (shortcut === '') return action
-    return zh ? `${action}（${shortcut}）` : `${action} (${shortcut})`
+    return action
   }
 
   const CSS = [
@@ -1026,7 +992,6 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-switch input:checked+span{background:var(--dsw-alias-brand-primary)}',
     '.dsh-pfm-switch input:checked+span:after{transform:translateX(16px)}',
     '.dsh-pfm-switch input:disabled+span{opacity:.45}',
-    '.dsh-pfm-settings-shortcut{display:flex;align-items:center;gap:8px;flex:none}',
     '.dsh-pfm-settings-button{appearance:none;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;min-height:34px;padding:5px 12px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}',
     '.dsh-pfm-settings-button:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}',
     '.dsh-pfm-settings-button:disabled{opacity:.45;cursor:default}',
@@ -1042,6 +1007,17 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-settings-advanced-body{display:flex;flex-direction:column;gap:12px;padding-top:12px}',
     '.dsh-pfm-settings-advanced-body .dsh-pfm-settings-row{padding:0}',
     '.dsh-pfm-settings-advanced-body .dsh-pfm-settings-row+.dsh-pfm-settings-row{border-top:0}',
+    '.dsh-pfm-settings-fewshots{display:flex;flex-direction:column;gap:10px;padding-top:4px}',
+    '.dsh-pfm-settings-template{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre;overflow:auto}',
+    '.dsh-pfm-settings-badge{align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+    '.dsh-pfm-settings-badge[data-custom="true"]{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary)}',
+    '.dsh-pfm-settings-fewshots-header{display:flex;align-items:center;justify-content:space-between;gap:12px}',
+    '.dsh-pfm-settings-fewshots-title{font-size:13px;font-weight:600}',
+    '.dsh-pfm-settings-fewshot{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px}',
+    '.dsh-pfm-settings-fewshot-field{grid-column:1/-1;display:flex;flex-direction:column;gap:5px;min-width:0}',
+    '.dsh-pfm-settings-fewshot-controls{display:flex;align-items:center;gap:8px}',
+    '.dsh-pfm-settings-textarea{width:100%;min-height:76px;resize:vertical;box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.5}',
+    '.dsh-pfm-settings-textarea:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary)}',
     '.dsh-pfm-settings-choices{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 0 12px}',
     '.dsh-pfm-settings-choice{position:relative;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;cursor:pointer;background:var(--dsw-alias-bg-layer-3)}',
     '.dsh-pfm-settings-choice[data-selected="true"]{border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 7%,var(--dsw-alias-bg-layer-3))}',
@@ -1057,7 +1033,7 @@ module.exports = function createClientPlugin(React, options) {
     '.dsh-pfm-settings-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 0 4px;border-top:1px solid var(--dsw-alias-border-l2)}',
     '.dsh-pfm-settings-footer .dsh-pfm-settings-status{flex:1}',
     '.dsh-pfm-settings-save{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border-color:transparent}',
-    '@media(max-width:620px){.dsh-pfm-settings-row{align-items:flex-start;flex-direction:column;gap:9px}.dsh-pfm-settings-shortcut{width:100%}.dsh-pfm-settings-key{flex:1}.dsh-pfm-settings-choices{grid-template-columns:1fr}}',
+    '@media(max-width:620px){.dsh-pfm-settings-row{align-items:flex-start;flex-direction:column;gap:9px}.dsh-pfm-settings-choices{grid-template-columns:1fr}}',
     '@keyframes dsh-pfm-spin{to{transform:rotate(360deg)}}',
     '@media(prefers-reduced-motion:reduce){.dsh-pfm-button[data-loading="true"] .dsh-pfm-icon{animation:none}}',
   ].join('')
@@ -1162,7 +1138,8 @@ module.exports = function createClientPlugin(React, options) {
       }
     }, [locked, sessionId, store, actions])
     if (sessionId === undefined || !actions || typeof actions.setDraft !== 'function') return null
-    const label = draft.trim() === ''
+    // Prediction is archived, so the button copy follows the Host flags.
+    const label = config.features.prediction !== false && draft.trim() === ''
       ? (zh ? '设计提示词' : 'Design prompt')
       : (zh ? '优化提示词' : 'Optimize prompt')
     const loading = locked && store.phase === 'loading'
@@ -1245,9 +1222,6 @@ module.exports = function createClientPlugin(React, options) {
       : null
     return {
       automatic: typeof source.automatic === 'boolean' ? source.automatic : DEFAULT_USER_SETTINGS.automatic,
-      shortcut: typeof source.shortcut === 'string' && source.shortcut !== ''
-        ? source.shortcut
-        : DEFAULT_USER_SETTINGS.shortcut,
       route,
       reasoningEffort: ['inherit', 'off', 'low', 'high', 'max'].includes(source.reasoningEffort)
         ? source.reasoningEffort
@@ -1270,12 +1244,29 @@ module.exports = function createClientPlugin(React, options) {
       timeoutMs: Number.isSafeInteger(source.timeoutMs)
         ? source.timeoutMs
         : DEFAULT_USER_SETTINGS.timeoutMs,
+      fewShots: Array.isArray(source.fewShots)
+        ? source.fewShots.filter((item) => item
+          && typeof item.id === 'string'
+          && (item.type === 'rewrite' || item.type === 'task')
+          && typeof item.enabled === 'boolean'
+          && typeof item.output === 'string'
+          && typeof (item.type === 'rewrite' ? item.input : item.hint) === 'string')
+          .slice(0, 16)
+          .map((item, index) => ({
+            id: item.id || `few-shot-${index + 1}`,
+            type: item.type,
+            enabled: item.enabled,
+            ...(item.type === 'rewrite' ? { input: item.input } : { hint: item.hint }),
+            output: item.output,
+          }))
+        : [],
+      optimizerPrompt: typeof source.optimizerPrompt === 'string' ? source.optimizerPrompt : '',
+      optimizerFewShot: typeof source.optimizerFewShot === 'string' ? source.optimizerFewShot : '',
     }
   }
 
   function sameUserSettings(left, right) {
     return left.automatic === right.automatic
-      && left.shortcut === right.shortcut
       && left.reasoningEffort === right.reasoningEffort
       && left.projectContextEnabled === right.projectContextEnabled
       && left.projectContextDepth === right.projectContextDepth
@@ -1283,6 +1274,9 @@ module.exports = function createClientPlugin(React, options) {
       && left.maxProjectContextBytes === right.maxProjectContextBytes
       && left.maxOutputTokens === right.maxOutputTokens
       && left.timeoutMs === right.timeoutMs
+      && left.optimizerPrompt === right.optimizerPrompt
+      && left.optimizerFewShot === right.optimizerFewShot
+      && JSON.stringify(left.fewShots) === JSON.stringify(right.fewShots)
       && ((left.route === null && right.route === null)
         || (left.route !== null && right.route !== null
           && left.route.provider === right.route.provider
@@ -1316,15 +1310,9 @@ module.exports = function createClientPlugin(React, options) {
       title: '嘴替',
       description: '帮你写下一条开发提示词，或把输入框里的草稿改得更清楚。',
       expand: '展开设置', collapse: '收起设置', unsaved: '未保存',
-      shortcut: '生成快捷键',
-      shortcutHint: '在输入框里按下它就会生成提示词，不会直接发送消息。',
-      record: '按下组合键', recording: '请按组合键…', disabled: '已关闭',
-      disableShortcut: '关闭', restoreShortcut: '恢复默认',
-      shortcutError: '请使用 Command/Ctrl 或 Alt 加一个普通按键。',
       advanced: '高级设置（通常不用改）',
       sectionModel: '使用哪个模型',
       sectionSpeed: '生成速度',
-      sectionShortcut: '快捷键',
       modelTitle: '模型选择方式',
       defaultRoute: '和当前会话一致（推荐）', defaultRouteHint: '你发送消息时用什么模型，嘴替也用什么模型。',
       customModel: '始终使用指定模型', customModelHint: '每次生成提示词都固定使用下面选择的模型。',
@@ -1340,6 +1328,18 @@ module.exports = function createClientPlugin(React, options) {
       projectContext: '参考当前项目', projectContextHint: '让嘴替了解项目结构和改动，生成更贴近当前工作的提示词。',
       projectDepth: '参考范围', maxFiles: '最多参考文件数', maxContext: '项目内容上限',
       maxOutput: '最长输出', timeout: '等待时间', seconds: '秒', tokens: 'Tokens', files: '个文件', kb: 'KB',
+      fewShots: 'Few-shot 示例', fewShotsHint: '示例只用于学习改写方式；不要照搬示例中的事实。',
+      optimizerTemplate: '默认优化提示词模板',
+      optimizerTemplateHint: '默认优化模板分为提示词和 Few-shot 两段，可分别编辑；恢复默认后会使用内置内容。',
+      optimizerPromptPart: '提示词（identity / requirements / guidelines / output format）',
+      optimizerFewShotPart: 'Few-shot（<example> 示例段）',
+      optimizerOfficial: '官方默认',
+      optimizerCustom: '已自定义',
+      restoreDefault: '恢复默认',
+      restoreAll: '全部恢复默认',
+      fewShotAdd: '添加示例', fewShotDelete: '删除', fewShotRewrite: '提示词改写', fewShotTask: '任务提示',
+      fewShotEnabled: '启用', fewShotInput: '原始提示词', fewShotHint: '宽泛任务提示', fewShotOutput: '优化后的任务指令',
+      fewShotLimit: '最多保存 16 条示例。',
       configured: '当前配置', readOnly: '当前设置存储为只读，不能在这里修改。',
       settingsUnavailable: '插件设置读取失败，当前显示默认值；保存不可用。',
       saveFailed: '保存没有生效，请检查 Host 设置服务。',
@@ -1348,15 +1348,9 @@ module.exports = function createClientPlugin(React, options) {
       title: 'Prompt Assistant',
       description: 'Write the next development prompt, or make the current draft clearer.',
       expand: 'Expand settings', collapse: 'Collapse settings', unsaved: 'Unsaved',
-      shortcut: 'Manual generation shortcut',
-      shortcutHint: 'Generate and fill the composer. This is separate from Tab, which accepts ghost text.',
-      record: 'Press shortcut', recording: 'Press keys…', disabled: 'Disabled',
-      disableShortcut: 'Disable', restoreShortcut: 'Restore default',
-      shortcutError: 'Use Command/Ctrl or Alt with a regular key.',
       advanced: 'Advanced settings (usually unchanged)',
       sectionModel: 'Which model to use',
       sectionSpeed: 'Response speed',
-      sectionShortcut: 'Shortcut',
       modelTitle: 'Model choice',
       defaultRoute: 'Same as current Session (recommended)', defaultRouteHint: 'Use the same model that will receive your message.',
       customModel: 'Always use a specific model', customModelHint: 'Generate every suggestion with the model selected below.',
@@ -1372,6 +1366,18 @@ module.exports = function createClientPlugin(React, options) {
       projectContext: 'Use current project as context', projectContextHint: 'Understand the project structure and recent changes to produce a more relevant prompt.',
       projectDepth: 'Context range', maxFiles: 'Max referenced files', maxContext: 'Project context limit',
       maxOutput: 'Max output length', timeout: 'Wait time', seconds: 'sec', tokens: 'Tokens', files: 'files', kb: 'KB',
+      fewShots: 'Few-shot examples', fewShotsHint: 'Examples teach rewrite style. Never copy example-specific facts.',
+      optimizerTemplate: 'Default optimizer template',
+      optimizerTemplateHint: 'The default optimizer template has independently editable prompt and few-shot sections. Restore either section to use its built-in content.',
+      optimizerPromptPart: 'Prompt (identity / requirements / guidelines / output format)',
+      optimizerFewShotPart: 'Few-shot (the <example> section)',
+      optimizerOfficial: 'Official default',
+      optimizerCustom: 'Customized',
+      restoreDefault: 'Restore default',
+      restoreAll: 'Restore all defaults',
+      fewShotAdd: 'Add example', fewShotDelete: 'Delete', fewShotRewrite: 'Prompt pair', fewShotTask: 'Task hint',
+      fewShotEnabled: 'Enabled', fewShotInput: 'Original prompt', fewShotHint: 'Broad task hint', fewShotOutput: 'Optimized task instruction',
+      fewShotLimit: 'Up to 16 examples can be saved.',
       configured: 'Configured', readOnly: 'The current settings store is read-only.',
       settingsUnavailable: 'Plugin settings could not be loaded. Defaults are shown and saving is unavailable.',
       saveFailed: 'The settings were not saved. Check the Host settings service.',
@@ -1387,8 +1393,6 @@ module.exports = function createClientPlugin(React, options) {
     const baselineRef = React.useRef(resolved)
     const [saving, setSaving] = React.useState(false)
     const [failed, setFailed] = React.useState(false)
-    const [recording, setRecording] = React.useState(false)
-    const [shortcutError, setShortcutError] = React.useState(false)
     const [modelRequested, setModelRequested] = React.useState(false)
     const [customSelectionPending, setCustomSelectionPending] = React.useState(false)
     const modelLoadingRef = React.useRef(false)
@@ -1455,9 +1459,21 @@ module.exports = function createClientPlugin(React, options) {
       if (!dirty || !writable || saving) return
       setSaving(true)
       setFailed(false)
-      await props.pfmSettingsScope.replace(draft)
+      // Store '' when a half still equals the default text, so "restore
+      // default" stays representable and the assembled prompt is byte-exact.
+      const defaults = snapshot.defaults || {}
+      const payload = {
+        ...draft,
+        optimizerPrompt: draft.optimizerPrompt === defaults.optimizerPrompt
+          ? ''
+          : draft.optimizerPrompt,
+        optimizerFewShot: draft.optimizerFewShot === defaults.optimizerFewShot
+          ? ''
+          : draft.optimizerFewShot,
+      }
+      await props.pfmSettingsScope.replace(payload)
       const actual = normalizeUserSettings(props.pfmSettingsScope.getSnapshot().value)
-      const succeeded = sameUserSettings(actual, draft)
+      const succeeded = sameUserSettings(actual, payload)
       baselineRef.current = actual
       setBaseline(actual)
       if (succeeded) setDraft(actual)
@@ -1465,28 +1481,30 @@ module.exports = function createClientPlugin(React, options) {
       setSaving(false)
     }
 
-    const recordShortcut = (event) => {
-      if (!recording) return
-      event.preventDefault()
-      event.stopPropagation()
-      if (event.key === 'Escape') {
-        setRecording(false)
-        setShortcutError(false)
-        return
-      }
-      const next = shortcutFromEvent(event)
-      if (next === undefined) {
-        setShortcutError(true)
-        return
-      }
-      setDraft({ ...draft, shortcut: next })
-      setRecording(false)
-      setShortcutError(false)
-    }
-
     const integerInput = (event, fallback = 0) => {
       const next = Number(event.target.value)
       return Number.isSafeInteger(next) ? next : fallback
+    }
+
+    const updateFewShot = (index, patch) => setDraft((current) => ({
+      ...current,
+      fewShots: current.fewShots.map((shot, shotIndex) => shotIndex === index
+        ? { ...shot, ...patch }
+        : shot),
+    }))
+
+    const addFewShot = () => {
+      if (draft.fewShots.length >= 16) return
+      setDraft({
+        ...draft,
+        fewShots: [...draft.fewShots, {
+          id: `few-shot-${Date.now()}`,
+          type: 'rewrite',
+          enabled: true,
+          input: '',
+          output: '',
+        }],
+      })
     }
 
     const modelStatus = !modelRequested
@@ -1499,6 +1517,125 @@ module.exports = function createClientPlugin(React, options) {
       ? copy.noModels
       : null
     const settingsUnavailable = snapshot.status === 'unavailable'
+
+    // --- Built-in optimizer template -------------------------------------
+    // Split in two independently editable halves. Defaults come from the Host
+    // so "restore default" always restores the exact built-in bytes; keeping
+    // both halves at their defaults reassembles the original prompt verbatim.
+    const optimizerDefaults = snapshot.defaults || {}
+    const defaultPromptPart = optimizerDefaults.optimizerPrompt || ''
+    const defaultFewShotPart = optimizerDefaults.optimizerFewShot || ''
+    const optimizerPromptText = draft.optimizerPrompt || defaultPromptPart
+    const optimizerFewShotText = draft.optimizerFewShot || defaultFewShotPart
+    const optimizerCustomized = optimizerPromptText !== defaultPromptPart
+      || optimizerFewShotText !== defaultFewShotPart
+    const optimizerTemplateEditor = h('section', { className: 'dsh-pfm-settings-fewshots' },
+      h('div', { className: 'dsh-pfm-settings-fewshots-header' },
+        h('span', { className: 'dsh-pfm-settings-fewshots-title' }, copy.optimizerTemplate),
+        h('span', {
+          className: 'dsh-pfm-settings-badge',
+          'data-custom': optimizerCustomized ? 'true' : 'false',
+        }, optimizerCustomized ? copy.optimizerCustom : copy.optimizerOfficial)),
+      h('p', { className: 'dsh-pfm-settings-hint' }, copy.optimizerTemplateHint),
+      h('div', { className: 'dsh-pfm-settings-fewshot-field' },
+        h('div', { className: 'dsh-pfm-settings-fewshots-header' },
+          h('span', { className: 'dsh-pfm-settings-label' }, copy.optimizerPromptPart),
+          h('button', {
+            type: 'button', className: 'dsh-pfm-settings-button',
+            disabled: !writable || optimizerPromptText === defaultPromptPart,
+            onClick: () => setDraft({ ...draft, optimizerPrompt: '' }),
+          }, copy.restoreDefault)),
+        h('textarea', {
+          className: 'dsh-pfm-settings-textarea dsh-pfm-settings-template',
+          rows: 10, spellCheck: false, value: optimizerPromptText, disabled: !writable,
+          onChange: (event) => setDraft({ ...draft, optimizerPrompt: event.target.value }),
+        })),
+      h('div', { className: 'dsh-pfm-settings-fewshot-field' },
+        h('div', { className: 'dsh-pfm-settings-fewshots-header' },
+          h('span', { className: 'dsh-pfm-settings-label' }, copy.optimizerFewShotPart),
+          h('button', {
+            type: 'button', className: 'dsh-pfm-settings-button',
+            disabled: !writable || optimizerFewShotText === defaultFewShotPart,
+            onClick: () => setDraft({ ...draft, optimizerFewShot: '' }),
+          }, copy.restoreDefault)),
+        h('textarea', {
+          className: 'dsh-pfm-settings-textarea dsh-pfm-settings-template',
+          rows: 10, spellCheck: false, value: optimizerFewShotText, disabled: !writable,
+          onChange: (event) => setDraft({ ...draft, optimizerFewShot: event.target.value }),
+        })),
+      h('div', { className: 'dsh-pfm-settings-footer' },
+        h('button', {
+          type: 'button', className: 'dsh-pfm-settings-button',
+          disabled: !writable || !optimizerCustomized,
+          onClick: () => setDraft({ ...draft, optimizerPrompt: '', optimizerFewShot: '' }),
+        }, copy.restoreAll)))
+
+    const fewShotEditor = h('section', { className: 'dsh-pfm-settings-fewshots' },
+      h('div', { className: 'dsh-pfm-settings-fewshots-header' },
+        h('span', { className: 'dsh-pfm-settings-fewshots-title' }, copy.fewShots),
+        h('button', {
+          type: 'button', className: 'dsh-pfm-settings-button',
+          disabled: !writable || draft.fewShots.length >= 16,
+          onClick: addFewShot,
+        }, copy.fewShotAdd)),
+      h('p', { className: 'dsh-pfm-settings-hint' }, copy.fewShotsHint),
+      draft.fewShots.length === 0 ? h('p', {
+        className: 'dsh-pfm-settings-status', role: 'status',
+      }, copy.fewShotLimit) : null,
+      draft.fewShots.map((shot, index) => {
+        const field = shot.type === 'rewrite' ? 'input' : 'hint'
+        return h('fieldset', {
+          className: 'dsh-pfm-settings-fewshot', key: shot.id,
+          disabled: !writable,
+        },
+        h('legend', null, shot.type === 'rewrite' ? copy.fewShotRewrite : copy.fewShotTask),
+        h('div', { className: 'dsh-pfm-settings-fewshot-controls' },
+          h('select', {
+            className: 'dsh-pfm-settings-select', value: shot.type,
+            'aria-label': copy.fewShots,
+            onChange: (event) => {
+              const nextType = event.target.value
+              const text = shot[field]
+              updateFewShot(index, {
+                type: nextType,
+                ...(nextType === 'rewrite'
+                  ? { input: text, hint: undefined }
+                  : { hint: text, input: undefined }),
+              })
+            },
+          }, [
+            h('option', { key: 'rewrite', value: 'rewrite' }, copy.fewShotRewrite),
+            h('option', { key: 'task', value: 'task' }, copy.fewShotTask),
+          ]),
+          h('label', { className: 'dsh-pfm-switch' },
+            h('input', {
+              type: 'checkbox', checked: shot.enabled,
+              'aria-label': copy.fewShotEnabled,
+              onChange: (event) => updateFewShot(index, { enabled: event.target.checked }),
+            }), h('span')),
+          h('button', {
+            type: 'button', className: 'dsh-pfm-settings-button',
+            'aria-label': copy.fewShotDelete,
+            onClick: () => setDraft({
+              ...draft,
+              fewShots: draft.fewShots.filter((_, shotIndex) => shotIndex !== index),
+            }),
+          }, copy.fewShotDelete)),
+        h('label', { className: 'dsh-pfm-settings-fewshot-field' },
+          h('span', { className: 'dsh-pfm-settings-label' }, shot.type === 'rewrite' ? copy.fewShotInput : copy.fewShotHint),
+          h('textarea', {
+            className: 'dsh-pfm-settings-textarea', rows: 3, maxLength: 8192,
+            value: shot[field], disabled: !writable,
+            onChange: (event) => updateFewShot(index, { [field]: event.target.value }),
+          })),
+        h('label', { className: 'dsh-pfm-settings-fewshot-field' },
+          h('span', { className: 'dsh-pfm-settings-label' }, copy.fewShotOutput),
+          h('textarea', {
+            className: 'dsh-pfm-settings-textarea', rows: 4, maxLength: 16384,
+            value: shot.output, disabled: !writable,
+            onChange: (event) => updateFewShot(index, { output: event.target.value }),
+          })))
+      }))
 
     return h('div', { className: 'dsh-pfm-settings-page' },
       h('header', { className: 'dsh-pfm-settings-panel-header' },
@@ -1600,34 +1737,11 @@ module.exports = function createClientPlugin(React, options) {
           ['high', copy.reasoningHigh],
           ['max', copy.reasoningMax],
         ].map(([value, label]) => h('option', { key: value, value }, label)))),
-      h('div', { className: 'dsh-pfm-settings-section-title' }, copy.sectionShortcut),
-      h('div', { className: 'dsh-pfm-settings-row' },
-        h('span', { className: 'dsh-pfm-settings-copy' },
-          h('span', { className: 'dsh-pfm-settings-label' }, copy.shortcut),
-          h('span', { className: 'dsh-pfm-settings-hint' }, copy.shortcutHint),
-          shortcutError ? h('span', {
-            className: 'dsh-pfm-settings-status', 'data-error': 'true', role: 'status',
-          }, copy.shortcutError) : null),
-        h('span', { className: 'dsh-pfm-settings-shortcut' },
-          h('button', {
-            type: 'button', className: 'dsh-pfm-settings-button dsh-pfm-settings-key',
-            disabled: !writable, onClick: () => { setRecording(true); setShortcutError(false) },
-            onKeyDown: recordShortcut,
-          }, recording
-            ? copy.recording
-            : draft.shortcut === 'disabled' ? copy.disabled : shortcutDisplay(draft.shortcut)),
-          h('button', {
-            type: 'button', className: 'dsh-pfm-settings-button', disabled: !writable,
-            onClick: () => {
-              setRecording(false)
-              setShortcutError(false)
-              setDraft({ ...draft, shortcut: draft.shortcut === 'disabled'
-                ? 'Mod+Shift+Space' : 'disabled' })
-            },
-          }, draft.shortcut === 'disabled' ? copy.restoreShortcut : copy.disableShortcut))),
       h('details', { className: 'dsh-pfm-settings-advanced' },
         h('summary', { className: 'dsh-pfm-settings-advanced-toggle' }, copy.advanced),
         h('div', { className: 'dsh-pfm-settings-advanced-body' },
+          // Project-context controls are archived: hidden while the feature is off.
+          ...(config.features.projectContext !== false ? [
           h('div', { className: 'dsh-pfm-settings-row' },
             h('div', { className: 'dsh-pfm-settings-copy' },
               h('span', { className: 'dsh-pfm-settings-label' }, copy.projectContext),
@@ -1682,6 +1796,7 @@ module.exports = function createClientPlugin(React, options) {
                 maxProjectContextBytes: integerInput(event, DEFAULT_USER_SETTINGS.maxProjectContextBytes) * 1024,
               }),
             })),
+          ] : []),
           h('div', { className: 'dsh-pfm-settings-row' },
             h('span', { className: 'dsh-pfm-settings-copy' },
               h('span', { className: 'dsh-pfm-settings-label' }, copy.maxOutput),
@@ -1709,6 +1824,8 @@ module.exports = function createClientPlugin(React, options) {
                 timeoutMs: integerInput(event, DEFAULT_USER_SETTINGS.timeoutMs) * 1000,
               }),
             })))),
+          optimizerTemplateEditor,
+          fewShotEditor,
       h('div', { className: 'dsh-pfm-settings-footer' },
         failed ? h('p', {
           className: 'dsh-pfm-settings-status', 'data-error': 'true', role: 'status',
@@ -1718,7 +1835,6 @@ module.exports = function createClientPlugin(React, options) {
           onClick: () => {
             setDraft(baseline)
             setFailed(false)
-            setRecording(false)
           },
         }, copy.discard),
         h('button', {
@@ -1742,11 +1858,11 @@ module.exports = function createClientPlugin(React, options) {
       const applySettingsSnapshot = () => {
         const snapshot = settingsScope.getSnapshot()
         if (snapshot.status !== 'ready') return
+        if (snapshot.features) config.features = { ...config.features, ...snapshot.features }
         const value = normalizeUserSettings(snapshot.value)
         applyConfiguration({
           ok: true,
           automatic: value.automatic,
-          shortcut: value.shortcut,
           projectContextEnabled: value.projectContextEnabled,
         })
       }
@@ -1797,8 +1913,6 @@ module.exports = function createClientPlugin(React, options) {
       latestTurnEnd,
       readOutcomes,
       recordOutcome,
-      shortcutMatches,
-      shortcutFromEvent,
       storeFor,
       stopManual,
       tooltipText,

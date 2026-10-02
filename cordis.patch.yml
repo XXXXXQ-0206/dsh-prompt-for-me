@@ -3,7 +3,8 @@
     - id: prompt-for-me
       name: dsh-prompt-for-me
       config:
-        maxCandidateBytes: 4096
+        # Prompt optimization expands the instruction instead of summarising it.
+        maxCandidateBytes: 8192
         maxDraftBytes: 32768
         maxCurrentCycleSkipped: 10
         maxCurrentCycleSkippedBytes: 16384
@@ -22,5 +23,5 @@
         maxProjectTreeFiles: 100
         maxOutputTokens: 2048
         timeoutMs: 30000
-        shortcut: Mod+Shift+Space
         automatic: false
+        # Optimize mode uses the selected DSH model and the embedded template.
