@@ -9,6 +9,10 @@ const { promisify } = require('node:util')
 const {
   applyUserSettings,
   buildSuggestionInput,
+  DEFAULT_OPTIMIZER_FEW_SHOT,
+  DEFAULT_OPTIMIZER_PROMPT,
+  OPTIMIZER_TEMPLATE,
+  optimizerSystemPrompt,
   parseCandidateLine,
   resolveConfig,
   resolveUserSettings,
@@ -16,6 +20,7 @@ const {
   userSettingsBase,
   utf8Bytes,
 } = require('./core.cjs')
+const { FEATURES } = require('./features.cjs')
 
 const RPC_PATH = '/dsh-prompt-for-me/rpc'
 const MAX_RPC_BYTES = 256 * 1024
@@ -36,6 +41,16 @@ const PROJECT_MANIFEST_NAMES = [
 
 function roundMs(value) {
   return Math.round(value * 10) / 10
+}
+
+// The built-in optimizer template and its two editable halves, shipped to the
+// settings UI so "restore default" always restores the exact default text.
+function optimizerTemplateDefaults() {
+  return {
+    optimizerPrompt: DEFAULT_OPTIMIZER_PROMPT,
+    optimizerFewShot: DEFAULT_OPTIMIZER_FEW_SHOT,
+    optimizerTemplate: OPTIMIZER_TEMPLATE,
+  }
 }
 
 function createMetricsStore(ctx, limit = MAX_METRICS) {
@@ -249,13 +264,9 @@ function withCatalogTimeout(promise, timeoutMs = 5000) {
 
 async function collectModelCatalog(ctx) {
   const llm = service(ctx, 'llm')
-  if (!llm || typeof llm.listProviders !== 'function'
-    || typeof llm.listModels !== 'function') {
-    throw new Error('llm-catalog-unavailable')
-  }
   const groups = []
   const failures = []
-  await Promise.all(llm.listProviders().map(async (provider) => {
+  if (llm && typeof llm.listProviders === 'function' && typeof llm.listModels === 'function') await Promise.all(llm.listProviders().map(async (provider) => {
     try {
       const models = await withCatalogTimeout(llm.listModels(provider.id))
       const entries = []
@@ -305,6 +316,7 @@ async function collectModelCatalog(ctx) {
       })
     }
   }))
+  if (groups.length === 0 && failures.length === 0) throw new Error('llm-catalog-unavailable')
   return { groups, failures }
 }
 
@@ -518,7 +530,10 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
       return { ok: false, code, message }
     }
     const manualTrigger = args && args.trigger && args.trigger.kind === 'manual'
-    const mode = args && args.mode === 'optimize' ? 'optimize' : 'predict'
+    // Prediction is archived: with the flag off only the optimizer runs, and an
+    // empty composer draft is reported instead of designing a next prompt.
+    const requestedMode = args && args.mode === 'optimize' ? 'optimize' : 'predict'
+    const mode = FEATURES.prediction ? requestedMode : 'optimize'
     const automaticTrigger = args && args.trigger && args.trigger.kind === 'automatic'
       && Number.isSafeInteger(args.trigger.turn) && args.trigger.turn >= 0
       && Number.isSafeInteger(args.trigger.endSeq) && args.trigger.endSeq >= 0
@@ -558,17 +573,42 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
     }, config.timeoutMs)
     let modelStarted = null
     try {
+      // The optimizer contract only uses the raw draft and the placeholder map.
+      // It does not consume session history, and asking the SessionQuery service
+      // for historical sessions can leave the request open while that optional
+      // service is still hydrating.
       const historyStarted = now()
-      const history = await historicalEvents(ctx, args.sessionId, config)
+      const history = args.mode === 'optimize'
+        ? []
+        : await historicalEvents(ctx, args.sessionId, config)
       metric.stages.historyMs = roundMs(now() - historyStarted)
       const inputStarted = now()
-      const project = await collectProjectContext(ctx, session, config)
+      // Project context is archived: collectProjectContext stays available but
+      // is not called while FEATURES.projectContext is false.
+      const project = FEATURES.projectContext
+        ? await collectProjectContext(ctx, session, config)
+        : null
       const input = buildSuggestionInput({ ...args, project }, sessionEvents(session), history, config)
-      const system = systemPrompt(mode)
-      const inputJson = JSON.stringify(input)
+      // Optimize mode uses the built-in editable template and the
+      // `{ user_input, placeholder_map }` input contract. The composer draft is
+      // sent verbatim without adding plugin context.
+      const usesOptimizerTemplate = mode === 'optimize'
+      const system = usesOptimizerTemplate ? optimizerSystemPrompt(config) : systemPrompt(mode)
+      const inputJson = usesOptimizerTemplate
+        ? JSON.stringify({ user_input: args.draft, placeholder_map: {} })
+        : JSON.stringify(input)
       metric.stages.inputBuildMs = roundMs(now() - inputStarted)
       metric.context = {
         mode,
+        optimizerTemplate: usesOptimizerTemplate
+          ? {
+              bytes: utf8Bytes(system),
+              promptCustom: typeof config.optimizerPrompt === 'string'
+                && config.optimizerPrompt.trim() !== '',
+              fewShotCustom: typeof config.optimizerFewShot === 'string'
+                && config.optimizerFewShot.trim() !== '',
+            }
+          : null,
         systemBytes: utf8Bytes(system),
         inputJsonBytes: utf8Bytes(inputJson),
         totalTextBytes: utf8Bytes(system) + utf8Bytes(inputJson),
@@ -584,6 +624,8 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
         preferenceAcceptedItems: input.userPreferenceMemory.acceptedExact.length,
         preferenceRejectedItems: input.userPreferenceMemory.rejectedSuggestions.length,
         preferenceMemoryBytes: utf8Bytes(JSON.stringify(input.userPreferenceMemory)),
+        fewShotItems: input.fewShots.length,
+        fewShotBytes: utf8Bytes(JSON.stringify(input.fewShots)),
         currentCycleSkippedItems: input.currentCycleSkipped.length,
         currentCycleSkippedBytes: utf8Bytes(JSON.stringify(input.currentCycleSkipped)),
         projectBytes: input.project ? utf8Bytes(JSON.stringify(input.project)) : 0,
@@ -596,6 +638,9 @@ function createGenerateStream(ctx, config, instrumentation = {}) {
           'NO_USER_CONTEXT',
           'This new session has no previous human message. Add a draft first to use the optimizer.',
         )
+      }
+      if (!FEATURES.prediction && mode === 'optimize' && args.draft.trim() === '') {
+        return failure('DRAFT_REQUIRED', 'Prompt for Me optimization requires composer text.')
       }
       modelStarted = now()
       const streamOptions = {
@@ -731,7 +776,6 @@ function registerRoute(ctx, getConfig, getSettingsBinding) {
         const config = getConfig()
         json(response, 200, {
           ok: true,
-          shortcut: config.shortcut,
           automatic: config.automatic,
           route: config.provider === undefined
             ? null
@@ -770,6 +814,8 @@ function registerRoute(ctx, getConfig, getSettingsBinding) {
           json(response, 200, {
             ok: true,
             settings: result.settings,
+            defaults: optimizerTemplateDefaults(),
+            features: FEATURES,
             writable: result.writable === true,
             revision: result.revision,
           })
@@ -789,6 +835,8 @@ function registerRoute(ctx, getConfig, getSettingsBinding) {
           json(response, 200, {
             ok: true,
             settings: result.settings,
+            defaults: optimizerTemplateDefaults(),
+            features: FEATURES,
             writable: result.writable === true,
             revision: result.revision,
           })

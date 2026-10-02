@@ -7,6 +7,13 @@ const { mkdtemp, mkdir, readFile, writeFile, rm } = require('node:fs/promises')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const host = require('../src/index.cjs')
+const { FEATURES } = require('../src/features.cjs')
+
+// Prediction and project-context collection are archived (kept in the code,
+// disabled by src/features.cjs). Their historical tests stay here and are
+// skipped while the flags are off, so flipping a flag restores coverage.
+const predictionOff = FEATURES.prediction ? false : 'archived: prediction is disabled'
+const projectOff = FEATURES.projectContext ? false : 'archived: project context is disabled'
 const { resolveConfig } = require('../src/core.cjs')
 
 function userEvent(text, source = { kind: 'user' }) {
@@ -63,7 +70,7 @@ function contextWith(streamFactory) {
   return { ctx: { get: (name) => services[name] }, requests, session }
 }
 
-test('generate reuses the session route and sends bounded contextual JSON without tools', async () => {
+test('generate reuses the session route and sends bounded contextual JSON without tools', { skip: predictionOff }, async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: `${candidateLines('A')}\n` }
     yield { type: 'finish', reason: { kind: 'stop' } }
@@ -105,7 +112,7 @@ test('generate reuses the session route and sends bounded contextual JSON withou
   assert.deepEqual(framed.currentCycleSkipped, ['Already shown'])
 })
 
-test('generate reads events from the dsh Session snapshotEvents face', async () => {
+test('generate reads events from the dsh Session snapshotEvents face', { skip: predictionOff }, async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
     yield { type: 'finish', reason: { kind: 'stop' } }
@@ -122,7 +129,7 @@ test('generate reads events from the dsh Session snapshotEvents face', async () 
   assert.equal(framed.current.recentTurns.length, 1)
 })
 
-test('project context grounds prediction in a blank session', async () => {
+test('project context grounds prediction in a blank session', { skip: projectOff }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pfm-project-'))
   try {
     await writeFile(join(directory, 'package.json'), JSON.stringify({
@@ -152,7 +159,7 @@ test('project context grounds prediction in a blank session', async () => {
   }
 })
 
-test('automatic generation is bound to the latest completed turn at both commit checks', async () => {
+test('automatic generation is bound to the latest completed turn at both commit checks', { skip: predictionOff }, async () => {
   const first = contextWith(async function * () {
     yield { type: 'text-delta', text: `${candidateLines('A')}\n` }
     yield { type: 'finish', reason: { kind: 'stop' } }
@@ -217,7 +224,7 @@ test('generate records token usage and privacy-safe stage metrics', async () => 
   })
   const generate = host._testing.createGenerateStream(ctx, resolveConfig({}), {
     now: () => { time += 10; return time },
-    record: (metric) => metrics.push(metric),
+    record: (metric) => { console.log('DEBUG METRIC', metric.status, metric.code); metrics.push(metric) },
   })
   const result = await generate({
     sessionId: 'session-1', draft: 'private draft', trigger: { kind: 'manual' }, currentCycleSkipped: [], localOutcomes: [],
@@ -250,7 +257,7 @@ test('historicalEvents retains session IDs for outcome correlation', async () =>
   assert.equal(history[0].events[0].data.content[0].text, 'Keep changes small and run focused tests.')
 })
 
-test('generate blocks empty-draft prediction when a new session has no human message', async () => {
+test('generate blocks empty-draft prediction when a new session has no human message', { skip: predictionOff }, async () => {
   const { ctx, requests, session } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -291,7 +298,7 @@ test('metrics store stays bounded and returns detached snapshots', () => {
   assert.match(logs[2], /^prompt-for-me metrics /)
 })
 
-test('metrics failures never change a successful generation', async () => {
+test('metrics failures never change a successful generation', { skip: predictionOff }, async () => {
   const { ctx } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -304,7 +311,7 @@ test('metrics failures never change a successful generation', async () => {
   assert.equal(result.ok, true)
 })
 
-test('a plugin-fixed model route overrides the live Session selection', async () => {
+test('a plugin-fixed model route overrides the live Session selection', { skip: predictionOff }, async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -317,7 +324,7 @@ test('a plugin-fixed model route overrides the live Session selection', async ()
   assert.equal(requests[0].model, 'fixed-model')
 })
 
-test('the default route reuses the session reasoning effort', async () => {
+test('the default route reuses the session reasoning effort', { skip: predictionOff }, async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: candidateLines('A') }
   })
@@ -348,7 +355,7 @@ test('the inherit setting reuses the session reasoning effort', async () => {
   })
   ctx.get('agentDefaultModel').currentSelection = () => undefined
   await host._testing.createGenerateHandler(ctx, resolveConfig({ reasoningEffort: 'inherit' }))({
-    sessionId: 'session-1', draft: '', trigger: { kind: 'manual' },
+    sessionId: 'session-1', draft: 'optimize me', mode: 'optimize', trigger: { kind: 'manual' },
     currentCycleSkipped: [], localOutcomes: [],
   })
   assert.equal(requests[0].reasoningEffort, 'high')
@@ -367,16 +374,19 @@ test('Host settings persist in the shared plugin store and preserve product-owne
 
   await binding.replace({
     automatic: true,
-    shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
     reasoningEffort: 'max',
     timeoutMs: 4321,
   })
   const persisted = JSON.parse(await readFile(join(home, 'plugins', 'dsh-prompt-for-me', 'settings.json'), 'utf8'))
   assert.equal(persisted.autoGenerate, undefined)
+  assert.equal(persisted.shortcut, undefined)
   assert.deepEqual(persisted.route, { provider: 'fixed', model: 'fixed-model' })
   assert.equal(persisted.reasoningEffort, 'max')
   assert.equal(persisted.timeoutMs, 4321)
+  assert.deepEqual(persisted.fewShots, [])
+  assert.equal(persisted.optimizerPrompt, '')
+  assert.equal(persisted.optimizerFewShot, '')
   assert.equal((await binding.read()).settings.timeoutMs, 4321)
   await rm(home, { recursive: true, force: true })
 })
@@ -384,11 +394,12 @@ test('Host settings persist in the shared plugin store and preserve product-owne
 test('the plugin RPC reads and atomically replaces its Host settings section', async () => {
   let route
   let current = {
-    automatic: true, shortcut: 'Mod+Shift+Space', route: null,
+    automatic: true, route: null,
     reasoningEffort: 'off',
     projectContextEnabled: true, projectContextDepth: 3,
     maxProjectTreeFiles: 100, maxProjectContextBytes: 16384,
-    maxOutputTokens: 2048, timeoutMs: 30000,
+    maxOutputTokens: 2048, timeoutMs: 30000, fewShots: [],
+    optimizerPrompt: '', optimizerFewShot: '',
   }
   const base = resolveConfig({ timeoutMs: 7654 })
   const binding = {
@@ -428,15 +439,18 @@ test('the plugin RPC reads and atomically replaces its Host settings section', a
     return JSON.parse(text)
   }
 
-  assert.deepEqual(await call('settings', {}), {
-    ok: true,
-    settings: current,
-    writable: true,
-    revision: 1,
-  })
+  const settingsReply = await call('settings', {})
+  assert.equal(settingsReply.ok, true)
+  assert.equal(settingsReply.writable, true)
+  assert.equal(settingsReply.revision, 1)
+  assert.deepEqual(settingsReply.settings, current)
+  assert.equal(
+    settingsReply.defaults.optimizerPrompt + settingsReply.defaults.optimizerFewShot,
+    settingsReply.defaults.optimizerTemplate,
+  )
+  assert.deepEqual(settingsReply.features, { projectContext: false, prediction: false })
   const next = {
     automatic: false,
-    shortcut: 'disabled',
     route: { provider: 'fixed', model: 'fixed-model' },
     reasoningEffort: 'max',
     projectContextEnabled: false,
@@ -445,22 +459,24 @@ test('the plugin RPC reads and atomically replaces its Host settings section', a
     maxProjectContextBytes: 8192,
     maxOutputTokens: 1024,
     timeoutMs: 15000,
+    fewShots: [],
+    optimizerPrompt: '',
+    optimizerFewShot: '',
   }
-  assert.deepEqual(await call('update-settings', { settings: next }), {
-    ok: true,
-    settings: next,
-    writable: true,
-    revision: 1,
-  })
+  const updateReply = await call('update-settings', { settings: next })
+  assert.equal(updateReply.ok, true)
+  assert.equal(updateReply.writable, true)
+  assert.equal(updateReply.revision, 1)
+  assert.deepEqual(updateReply.settings, next)
   assert.deepEqual(current, next)
   const configuration = await call('configuration', {})
   assert.equal(configuration.automatic, false)
-  assert.equal(configuration.shortcut, 'disabled')
+  assert.equal(Object.prototype.hasOwnProperty.call(configuration, 'shortcut'), false)
   assert.deepEqual(configuration.route, next.route)
   assert.equal(configuration.reasoningEffort, 'max')
 })
 
-test('generate publishes stream deltas before the model finishes', async () => {
+test('generate publishes stream deltas before the model finishes', { skip: predictionOff }, async () => {
   let releaseFinish
   const finish = new Promise((resolve) => { releaseFinish = resolve })
   const { ctx } = contextWith(async function * () {
@@ -489,7 +505,7 @@ test('generate publishes stream deltas before the model finishes', async () => {
   assert.equal(result.candidate, 'A')
 })
 
-test('generate rejects stale sessions and accepts raw prompt output', async () => {
+test('generate rejects stale sessions and accepts raw prompt output', { skip: predictionOff }, async () => {
   const { ctx, requests } = contextWith(async function * () {
     yield { type: 'text-delta', text: 'not-json' }
   })
@@ -548,7 +564,7 @@ test('model catalog lists live providers without a session', async () => {
   })
 })
 
-test('generate reports a locally enforced model timeout', async () => {
+test('generate reports a locally enforced model timeout', { skip: predictionOff }, async () => {
   const { ctx } = contextWith((options) => ({
     [Symbol.asyncIterator]() { return this },
     next() {
